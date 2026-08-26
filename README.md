@@ -73,3 +73,5 @@ npm run tauri build
 - WASAPI 环回 / 麦克风采集（`wasapi`）
 - 本地 Whisper：`whisper-cli.exe`（whisper.cpp）
 - DeepSeek Chat Completions API
+
+![应用界面](https://doc.vibsight.mmming.cn/stack-edit/2026/08/26/43e02cee.png)
