@@ -135,7 +135,14 @@ impl ChatStore {
     }
 
     /// Replace all persisted messages for a session (keeps system out).
-    pub fn save_messages(&self, session_id: &str, messages: &[ChatMessage]) -> Result<(), String> {
+    /// `touch_updated` should be true only when the user actually sent a turn;
+    /// merely switching sessions must not bump `updated_at` or the history list jumps.
+    pub fn save_messages(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+        touch_updated: bool,
+    ) -> Result<(), String> {
         let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -168,19 +175,27 @@ impl ChatStore {
                 )
                 .unwrap_or_else(|_| "新对话".into());
             if current == "新对话" || current.is_empty() {
-                tx.execute(
-                    "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![title, now, session_id],
-                )
-                .map_err(|e| e.to_string())?;
-            } else {
+                if touch_updated {
+                    tx.execute(
+                        "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![title, now, session_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                } else {
+                    tx.execute(
+                        "UPDATE sessions SET title = ?1 WHERE id = ?2",
+                        params![title, session_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+            } else if touch_updated {
                 tx.execute(
                     "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
                     params![now, session_id],
                 )
                 .map_err(|e| e.to_string())?;
             }
-        } else {
+        } else if touch_updated {
             tx.execute(
                 "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
                 params![now, session_id],

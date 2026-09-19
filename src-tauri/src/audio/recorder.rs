@@ -1,144 +1,16 @@
-use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
-use thiserror::Error;
 use wasapi::{
-    get_default_device, initialize_mta, Direction, SampleType, StreamMode, WaveFormat,
+    get_default_device, initialize_mta, DeviceCollection, Direction, SampleType, StreamMode,
+    WaveFormat,
 };
 
-const TARGET_RATE: u32 = 16_000;
-const CAPTURE_RATE: u32 = 48_000;
+pub(crate) const TARGET_RATE: u32 = 16_000;
+pub(crate) const CAPTURE_RATE: u32 = 48_000;
 const CAPTURE_CHANNELS: usize = 2;
 
-#[derive(Error, Debug)]
-pub enum RecorderError {
-    #[error("{0}")]
-    Message(String),
-}
-
-pub struct Recorder {
-    stop: Arc<AtomicBool>,
-    handles: Vec<JoinHandle<()>>,
-    loopback_buf: Arc<Mutex<Vec<f32>>>,
-    mic_buf: Arc<Mutex<Vec<f32>>>,
-    include_mic: bool,
-    out_dir: PathBuf,
-}
-
-impl Recorder {
-    pub fn start(include_mic: bool, out_dir: PathBuf) -> Result<Self, RecorderError> {
-        std::fs::create_dir_all(&out_dir)
-            .map_err(|e| RecorderError::Message(format!("创建录音目录失败: {e}")))?;
-
-        let stop = Arc::new(AtomicBool::new(false));
-        let loopback_buf = Arc::new(Mutex::new(Vec::new()));
-        let mic_buf = Arc::new(Mutex::new(Vec::new()));
-        let mut handles = Vec::new();
-
-        {
-            let stop_c = Arc::clone(&stop);
-            let buf = Arc::clone(&loopback_buf);
-            handles.push(thread::spawn(move || {
-                if let Err(e) = capture_stream(Direction::Render, stop_c, buf) {
-                    eprintln!("[AurisAI] loopback capture error: {e}");
-                }
-            }));
-        }
-
-        if include_mic {
-            let stop_c = Arc::clone(&stop);
-            let buf = Arc::clone(&mic_buf);
-            handles.push(thread::spawn(move || {
-                if let Err(e) = capture_stream(Direction::Capture, stop_c, buf) {
-                    eprintln!("[AurisAI] mic capture error: {e}");
-                }
-            }));
-        }
-
-        thread::sleep(Duration::from_millis(250));
-
-        Ok(Self {
-            stop,
-            handles,
-            loopback_buf,
-            mic_buf,
-            include_mic,
-            out_dir,
-        })
-    }
-
-    pub fn stop(self) -> Result<PathBuf, RecorderError> {
-        self.stop.store(true, Ordering::SeqCst);
-        for h in self.handles {
-            let _ = h.join();
-        }
-
-        let loopback = self.loopback_buf.lock().clone();
-        let mic = if self.include_mic {
-            self.mic_buf.lock().clone()
-        } else {
-            Vec::new()
-        };
-
-        if loopback.is_empty() && mic.is_empty() {
-            return Err(RecorderError::Message(
-                "未采集到音频，请检查系统播放设备与麦克风权限".into(),
-            ));
-        }
-
-        let mixed = mix_buffers(&loopback, &mic);
-        let resampled = resample_linear(&mixed, CAPTURE_RATE, TARGET_RATE);
-
-        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let path = self.out_dir.join(format!("rec_{stamp}.wav"));
-        write_wav_i16(&path, &resampled, TARGET_RATE)
-            .map_err(|e| RecorderError::Message(format!("写入 wav 失败: {e}")))?;
-        Ok(path)
-    }
-}
-
-fn mix_buffers(loopback: &[f32], mic: &[f32]) -> Vec<f32> {
-    if loopback.is_empty() {
-        return normalize_peak(mic, 0.95);
-    }
-    if mic.is_empty() {
-        return normalize_peak(loopback, 0.95);
-    }
-    // Mic often re-captures speaker playback → echo/garble in Whisper.
-    // Keep loopback primary; blend attenuated mic.
-    const MIC_GAIN: f32 = 0.35;
-    let len = loopback.len().max(mic.len());
-    let mut out = Vec::with_capacity(len);
-    for i in 0..len {
-        let va = loopback.get(i).copied().unwrap_or(0.0);
-        let vb = mic.get(i).copied().unwrap_or(0.0) * MIC_GAIN;
-        out.push(va + vb);
-    }
-    normalize_peak(&out, 0.95)
-}
-
-fn normalize_peak(samples: &[f32], target: f32) -> Vec<f32> {
-    let peak = samples
-        .iter()
-        .map(|s| s.abs())
-        .fold(0.0_f32, f32::max);
-    // Avoid amplifying near-silence / hiss into full-scale noise (causes Whisper loops).
-    if peak < 0.02 {
-        return samples.iter().map(|s| s.clamp(-1.0, 1.0)).collect();
-    }
-    if peak <= target {
-        return samples.iter().map(|s| s.clamp(-1.0, 1.0)).collect();
-    }
-    let gain = target / peak;
-    samples.iter().map(|s| (s * gain).clamp(-1.0, 1.0)).collect()
-}
-
-fn resample_linear(input: &[f32], from: u32, to: u32) -> Vec<f32> {
-    // Cubic Hermite (Catmull-Rom-ish) — better than linear for speech before Whisper.
+pub(crate) fn resample_linear(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to || input.is_empty() {
         return input.to_vec();
     }
@@ -157,7 +29,6 @@ fn resample_linear(input: &[f32], from: u32, to: u32) -> Vec<f32> {
         let p1 = input[i1.clamp(0, last as isize) as usize];
         let p2 = input[(i1 + 1).clamp(0, last as isize) as usize];
         let p3 = input[(i1 + 2).clamp(0, last as isize) as usize];
-        // Catmull-Rom
         let t2 = t * t;
         let t3 = t2 * t;
         let sample = 0.5
@@ -184,22 +55,6 @@ fn resample_linear_basic(input: &[f32], from: u32, to: u32) -> Vec<f32> {
     out
 }
 
-fn write_wav_i16(path: &Path, samples: &[f32], sample_rate: u32) -> Result<(), String> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-    let mut writer = hound::WavWriter::create(path, spec).map_err(|e| e.to_string())?;
-    for &s in samples {
-        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        writer.write_sample(v).map_err(|e| e.to_string())?;
-    }
-    writer.finalize().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 fn float_bytes_to_mono(bytes: &[u8], channels: usize) -> Vec<f32> {
     let floats: Vec<f32> = bytes
         .chunks_exact(4)
@@ -214,23 +69,40 @@ fn float_bytes_to_mono(bytes: &[u8], channels: usize) -> Vec<f32> {
         .collect()
 }
 
-fn push_mono(target: &Arc<Mutex<Vec<f32>>>, bytes: &[u8]) {
-    let mono = float_bytes_to_mono(bytes, CAPTURE_CHANNELS);
-    target.lock().extend(mono);
-}
-
-/// Capture from default mic (`Direction::Capture`) or system loopback (`Direction::Render`).
-fn capture_stream(
+/// Capture from mic (`Direction::Capture`) or system loopback (`Direction::Render`).
+/// Empty / `None` `device_id` uses the system default for that direction.
+pub(crate) fn capture_stream(
     device_dir: Direction,
+    device_id: Option<String>,
     stop: Arc<AtomicBool>,
-    buf: Arc<Mutex<Vec<f32>>>,
+    mut on_mono: impl FnMut(&[f32]),
 ) -> Result<(), String> {
     initialize_mta()
         .ok()
         .map_err(|e| format!("COM MTA init failed: {e:?}"))?;
 
-    let device = get_default_device(&device_dir)
-        .map_err(|e| format!("获取音频设备失败 ({device_dir:?}): {e}"))?;
+    let device = match device_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(id) => {
+            let collection = DeviceCollection::new(&device_dir)
+                .map_err(|e| format!("获取设备列表失败: {e}"))?;
+            let n = collection
+                .get_nbr_devices()
+                .map_err(|e| format!("读取设备数量失败: {e}"))?;
+            let mut found = None;
+            for i in 0..n {
+                let Ok(dev) = collection.get_device_at_index(i) else {
+                    continue;
+                };
+                if dev.get_id().ok().as_deref() == Some(id) {
+                    found = Some(dev);
+                    break;
+                }
+            }
+            found.ok_or_else(|| "未找到所选音频设备，请重选或改用系统默认".to_string())?
+        }
+        None => get_default_device(&device_dir)
+            .map_err(|e| format!("获取默认音频设备失败 ({device_dir:?}): {e}"))?,
+    };
     let mut audio_client = device
         .get_iaudioclient()
         .map_err(|e| format!("get_iaudioclient: {e}"))?;
@@ -251,7 +123,6 @@ fn capture_stream(
         buffer_duration_hns: min_time,
     };
 
-    // Render device + Capture stream direction => WASAPI loopback flag
     audio_client
         .initialize_client(&desired, &Direction::Capture, &mode)
         .map_err(|e| format!("initialize_client: {e}"))?;
@@ -278,9 +149,9 @@ fn capture_stream(
             for b in chunk.iter_mut() {
                 *b = queue.pop_front().unwrap();
             }
-            push_mono(&buf, &chunk);
+            let mono = float_bytes_to_mono(&chunk, CAPTURE_CHANNELS);
+            on_mono(&mono);
         }
-        // Short timeout so we can notice stop flag quickly
         let _ = h_event.wait_for_event(50);
     }
     let _ = audio_client.stop_stream();

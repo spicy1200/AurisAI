@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机票运价与订单管理系统 · 产品图 v1.1</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    font-size: 12px;
+    color: #1F2933;
+    background: #F4F6F8;
+    line-height: 1.45;
+  }
+  button, input, select, textarea { font-family: inherit; font-size: 12px; }
+  .top {
+    background: #fff;
+    border-bottom: 1px solid #D8DEE6;
+    padding: 10px 16px 0;
+  }
+  .top h1 { font-size: 15px; font-weight: 700; color: #0F2744; }
+  .top .sub { color: #6B7C8F; margin: 4px 0 10px; font-size: 12px; }
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+  .tab {
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: #EEF1F4;
+    color: #3D4F61;
+    padding: 7px 12px;
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+  }
+  .tab.on {
+    background: #fff;
+    color: #1A7A72;
+    font-weight: 700;
+    border-color: #D8DEE6;
+    position: relative;
+    top: 1px;
+    padding-bottom: 8px;
+  }
+  .flows {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #D8DEE6;
+  }
+  .flow h3 {
+    font-size: 12px;
+    color: #0F2744;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .step {
+    background: #E8F3F2;
+    color: #0F2744;
+    border: 1px solid #B7D4D1;
+    padding: 3px 8px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .step-arr { color: #1A7A72; font-weight: 700; }
+  .shell { display: flex; min-height: calc(100% - 148px); }
+  .side {
+    width: 188px;
+    flex-shrink: 0;
+    background: #0F2744;
+    color: #C5D0DC;
+    padding: 12px 0 24px;
+  }
+  .side .brand {
+    padding: 4px 14px 12px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    border-bottom: 1px solid #1C3A5A;
+    margin-bottom: 8px;
+  }
+  .side .g { padding: 8px 14px 4px; color: #7E91A6; font-size: 11px; }
+  .side a {
+    display: block;
+    color: #C5D0DC;
+    text-decoration: none;
+    padding: 6px 14px 6px 22px;
+    cursor: pointer;
+  }
+  .side a:hover { background: #163555; color: #fff; }
+  .side a.on { background: #1A7A72; color: #fff; font-weight: 700; }
+  .main { flex: 1; padding: 12px 16px 24px; min-width: 0; }
+  .page { display: none; }
+  .page.on { display: block; }
+  .card {
+    background: #fff;
+    border: 1px solid #D8DEE6;
+    border-radius: 2px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .bar h2 { font-size: 13px; color: #0F2744; }
+  .crumbs { color: #6B7C8F; margin-bottom: 8px; }
+  .btn {
+    display: inline-block;
+    border: 1px solid #C5CED8;
+    background: #fff;
+    color: #1F2933;
+    padding: 5px 12px;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .btn:hover { border-color: #1A7A72; color: #1A7A72; }
+  .btn-p {
+    background: #1A7A72;
+    border-color: #1A7A72;
+    color: #fff;
+  }
+  .btn-p:hover { color: #fff; background: #15665F; }
+  .btn-w { border-color: #C2410C; color: #C2410C; }
+  .btn-g { background: #EEF1F4; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+  .f { display: flex; flex-direction: column; gap: 3px; }
+  .f label { color: #3D4F61; }
+  .f .req { color: #C0392B; }
+  input[type="text"], input[type="number"], select, textarea {
+    border: 1px solid #C5CED8;
+    padding: 5px 8px;
+    background: #fff;
+    min-width: 120px;
+    border-radius: 2px;
+  }
+  input:focus, select:focus, textarea:focus { outline: 1px solid #1A7A72; border-color: #1A7A72; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border-bottom: 1px solid #E6EBF0; padding: 7px 8px; text-align: left; }
+  th { background: #F7F9FA; color: #3D4F61; font-weight: 700; }
+  tr.clk { cursor: pointer; }
+  tr.clk:hover td { background: #F3FAF9; }
+  .ok { color: #1A7A72; font-weight: 700; }
+  .st { display: inline-block; padding: 1px 6px; border: 1px solid #1A7A72; color: #1A7A72; border-radius: 2px; }
+  .st-w { border-color: #B45309; color: #B45309; background: #FDE8C8; font-weight: 700; }
+  .warn { background: #FDE8C8; color: #8A5A00; font-weight: 700; padding: 2px 6px; }
+  .muted { color: #6B7C8F; }
+  .grid2 { display: grid; grid-template-columns: 1fr 280px; gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .form-g { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 10px; }
+  .span2 { grid-column: span 2; }
+  .span4 { grid-column: span 4; }
+  .calc {
+    background: #F3FAF9;
+    border: 1px solid #1A7A72;
+    padding: 12px;
+  }
+  .calc .big { font-size: 22px; font-weight: 700; color: #1A7A72; }
+  .quote { border: 1px solid #D8DEE6; padding: 12px; }
+  .quote .price { font-size: 18px; font-weight: 700; color: #0F2744; }
+  .map { display: grid; grid-template-columns: 1fr 90px 1fr; gap: 8px; align-items: stretch; }
+  .map-box { background: #fff; border: 1px solid #D8DEE6; padding: 10px; }
+  .map-box h3 {
+    font-size: 13px;
+    background: #0F2744;
+    color: #fff;
+    margin: -10px -10px 8px;
+    padding: 8px 10px;
+  }
+  .map-item {
+    border: 1px solid #B7D4D1;
+    background: #E8F3F2;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+  }
+  .map-item:hover { border-color: #1A7A72; }
+  .map-arr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #1A7A72;
+    font-weight: 700;
+    text-align: center;
+    font-size: 12px;
+  }
+  .map-arr span { display: block; margin: 6px 0; }
+  .hline { height: 2px; background: #1A7A72; width: 100%; }
+  .sys-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .toast {
+    display: none;
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    background: #0F2744;
+    color: #fff;
+    padding: 8px 14px;
+    z-index: 20;
+  }
+  .toast.on { display: block; }
+  .mask {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 39, 68, 0.35);
+    z-index: 30;
+    align-items: center;
+    justify-content: center;
+  }
+  .mask.on { display: flex; }
+  .dlg { background: #fff; width: 420px; padding: 14px; }
+  .dlg h3 { font-size: 13px; margin-bottom: 10px; }
+  .kv { display: grid; grid-template-columns: 88px 1fr; gap: 4px 8px; }
+  .kv b { color: #6B7C8F; font-weight: 400; }
+  .seg { display: inline-flex; border: 1px solid #1A7A72; }
+  .seg button { border: 0; background: #fff; color: #1A7A72; padding: 5px 10px; cursor: pointer; }
+  .seg button.on { background: #1A7A72; color: #fff; }
+  .hint { color: #6B7C8F; font-size: 12px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 1100px) {
+    .grid2, .form-g, .map, .flows, .sys-row, .split { grid-template-columns: 1fr; }
+    .side { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>机票运价与订单管理系统 · 产品图 v1.1</h1>
+  <div class="sub">独立产品原型，与 AurisAI 无关。点击上方标签切换页面。</div>
+  <div class="tabs">
+    <button class="tab on" data-page="ia">P0 信息架构</button>
+    <button class="tab" data-page="rules">P1 规则列表</button>
+    <button class="tab" data-page="create">P2 手工新建</button>
+    <button class="tab" data-page="quote">P3 询价</button>
+    <button class="tab" data-page="orders">P4 订单列表</button>
+    <button class="tab" data-page="detail">P5 订单详情</button>
+    <button class="tab" data-page="purchase">P6 采购录入</button>
+  </div>
+</div>
+
+<div class="flows">
+  <div class="flow">
+    <h3>政策下发流程</h3>
+    <div class="steps">
+      <span class="step">手工 / 批量</span><span class="step-arr">→</span>
+      <span class="step">校验必填与互斥</span><span class="step-arr">→</span>
+      <span class="step">保存后端</span><span class="step-arr">→</span>
+      <span class="step">下发前端</span><span class="step-arr">→</span>
+      <span class="step">立即刷新缓存</span><span class="step-arr">→</span>
+      <span class="step">询价取新价</span>
+    </div>
+  </div>
+  <div class="flow">
+    <h3>订单采购流程</h3>
+    <div class="steps">
+      <span class="step">平台订单同步</span><span class="step-arr">→</span>
+      <span class="step">本单 QN+时间+4随机</span><span class="step-arr">→</span>
+      <span class="step">详情 / 政策快照</span><span class="step-arr">→</span>
+      <span class="step">整单或按人录入</span><span class="step-arr">→</span>
+      <span class="step">汇率 6.7 到 6.8</span><span class="step-arr">→</span>
+      <span class="step">出票 / 作废重录 / 紧急补录</span>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand">机票运价与订单</div>
+    <div class="g">工作台</div>
+    <a data-page="ia">信息架构</a>
+    <div class="g">运价管理</div>
+    <a data-page="rules" class="nav-rules">规则列表</a>
+    <a data-page="create" class="nav-create">手工新建</a>
+    <a data-page="rules" data-extra="import">批量导入</a>
+    <a data-page="quote" class="nav-quote">询价试算</a>
+    <div class="g">订单管理</div>
+    <a data-page="orders" class="nav-orders">订单列表</a>
+    <a data-page="detail" class="nav-detail">订单详情</a>
+    <a data-page="purchase" class="nav-purchase">采购录入</a>
+    <a data-page="detail" data-extra="emer">紧急二次录入</a>
+    <a data-page="detail" data-extra="void">作废重录</a>
+    <div class="g">系统</div>
+    <a data-page="ia">银行汇率</a>
+    <a data-page="ia">渠道 / 店铺</a>
+  </aside>
+
+  <div class="main">
+
+    <!-- P0 -->
+    <section id="ia" class="page on">
+      <div class="crumbs">产品图 / 信息架构</div>
+      <div class="card">
+        <div class="bar"><h2>模块关系</h2><span class="muted">点击方块进入对应页面</span></div>
+        <div class="map">
+          <div class="map-box">
+            <h3>运价管理</h3>
+            <div class="map-item" data-page="rules">规则列表</div>
+            <div class="map-item" data-page="create">手工新建</div>
+            <div class="map-item" data-page="rules">批量导入</div>
+            <div class="map-item" data-page="quote">询价试算</div>
+            <p class="hint">渠道 QN（去哪儿）· 店铺 ZML / ZYP · 政策代码 QNGK · 航司 GK</p>
+          </div>
+          <div class="map-arr">
+            <div class="hline"></div>
+            <span>规则下发缓存</span>
+            <div class="hline"></div>
+            <span class="muted">变更立即生效</span>
+          </div>
+          <div class="map-box">
+            <h3>询价缓存 / 平台</h3>
+            <div class="map-item" data-page="quote">店铺 + 航线日期</div>
+            <div class="map-item" data-page="quote">YULEWR20260908</div>
+            <p class="hint">返回修正成人价 / 儿童价，例 GK100 成人 1045、儿童 1050。</p>
+          </div>
+        </div>
+        <div class="map" style="margin-top:10px;">
+          <div class="map-box">
+            <h3>平台（去哪儿）</h3>
+            <div class="map-item" data-page="orders">外单 zml260902051659159fe0a1</div>
+            <p class="hint">订单从平台同步，本系统不提供 C 端下单。</p>
+          </div>
+          <div class="map-arr">
+            <div class="hline"></div>
+            <span>平台订单同步</span>
+            <div class="hline"></div>
+            <span class="muted">生成本单号</span>
+          </div>
+          <div class="map-box">
+            <h3>订单管理</h3>
+            <div class="map-item" data-page="orders">订单列表</div>
+            <div class="map-item" data-page="detail">订单详情</div>
+            <div class="map-item" data-page="purchase">采购录入</div>
+            <div class="map-item" data-page="detail">紧急二次录入</div>
+            <div class="map-item" data-page="detail">作废重录</div>
+          </div>
+        </div>
+        <div class="sys-row">
+          <div class="map-box">
+            <h3>系统 · 汇率</h3>
+            <p>当日银行汇率加价进位，避免亏损。</p>
+            <p style="margin-top:6px;font-weight:700;">6.7 → 6.8</p>
+          </div>
+          <div class="map-box">
+            <h3>系统 · 渠道</h3>
+            <p>v1 仅去哪儿。</p>
+            <p style="margin-top:6px;font-weight:700;">QN</p>
+          </div>
+          <div class="map-box">
+            <h3>系统 · 店铺</h3>
+            <p>规则、询价、订单均按店铺隔离。</p>
+            <p style="margin-top:6px;font-weight:700;">ZML / ZYP</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- P1 -->
+    <section id="rules" class="page">
+      <div class="crumbs">运价管理 / 规则列表</div>
+      <div class="card">
+        <div class="bar">
+          <h2>加价规则</h2>
+          <div>
+            <button class="btn btn-p" data-page="create">手工新建</button>
+            <button class="btn" id="btnImport">批量导入</button>
+          </div>
+        </div>
+        <div class="row" style="margin-bottom:10px;">
+          <div class="f"><label>渠道</label><input type="text" value="QN" readonly></div>
+          <div class="f"><label>店铺</label>
+            <select><option>ZML</option><option>ZYP</option></select>
+          </div>
+          <div class="f"><label>政策代码</label><input type="text" value="QNGK"></div>
+          <div class="f"><label>航司</label><input type="text" value="GK"></div>
+          <div class="f"><label>&nbsp;</label><button class="btn btn-p">查询</button></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>政策代码</th><th>店铺</th><th>航司</th><th>政策类型</th><th>行程类型</th>
+              <th>仓位</th><th>出发</th><th>抵达</th><th>航班</th>
+              <th>最低利润阈值</th><th>同步</th><th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="clk" data-page="create">
+              <td>QNGK</td><td>ZML</td><td>GK</td><td>普通</td><td>单程</td>
+              <td>全部</td><td>*</td><td>*</td><td>—</td>
+              <td>-15</td><td class="ok">已同步</td><td><span class="st">生效</span></td>
+            </tr>
+            <tr class="clk" data-page="quote">
+              <td>QNGK</td><td>ZYP</td><td>GK</td><td>普通</td><td>单程</td>
+              <td>Y,B,H</td><td>YUL</td><td>EWR</td><td>适用 GK100</td>
+              <td>-15</td><td class="ok">已同步</td><td><span class="st">生效</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint" style="margin-top:8px;">保存、导入、停用后立即下发并刷新缓存。点击行可进入编辑或询价。</p>
+      </div>
+    </section>
+
+    <!-- P2 -->
+    <section id="create" class="page">
+      <div class="crumbs">运价管理 / 手工新建政策</div>
+      <div class="grid2">
+        <div class="card">
+          <div class="bar"><h2>手工新建</h2><span class="hint">带 <span class="req">*</span> 为必填</span></div>
+          <div class="form-g">
+            <div class="f"><label>渠道 <span class="req">*</span></label>
+              <select><option selected>QN 去哪儿</option></select>
+            </div>
+            <div class="f"><label>店铺 <span class="req">*</span></label>
+              <select><option selected>ZML</option><option>ZYP</option></select>
+            </div>
+            <div class="f"><label>政策代码 <span class="req">*</span></label>
+              <input type="text" value="QNGK">
+            </div>
+            <div class="f"><label>航司 <span class="req">*</span></label>
+              <input type="text" value="GK">
+            </div>
+            <div class="f"><label>政策类型 <span class="req">*</span></label>
+              <select>
+                <option selected>普通</option>
+                <option>积分</option>
+                <option>压位</option>
+                <option>促销</option>
+                <option>拉位</option>
+                <option>行李套餐</option>
+                <option>金牌产品</option>
+              </select>
+            </div>
+            <div class="f"><label>行程类型 <span class="req">*</span></label>
+              <select>
+                <option selected>单程</option>
+                <option>往返</option>
+                <option>中转</option>
+              </select>
+            </div>
+            <div class="f"><label>仓位代码</label><input type="text" value="Y,B,H" placeholder="空=全部仓位"></div>
+            <div class="f"><label>最低利润阈值 <span class="req">*</span></label>
+              <input type="number" id="thr" value="-15">
+            </div>
+            <div class="f"><label>出发</label><input type="text" value="*" placeholder="空或 * = 该航司全部"></div>
+            <div class="f"><label>抵达</label><input type="text" value="*" placeholder="空或 * = 该航司全部"></div>
+            <div class="f"><label>适用航班</label><input type="text" id="incFlt" placeholder="例 GK100"></div>
+            <div class="f"><label>不适用航班</label><input type="text" id="excFlt" placeholder="与适用互斥"></div>
+            <div class="f"><label>最小售卖天数</label><input type="number" value="1" placeholder="空=含当天"></div>
+            <div class="f"><label>最大售卖天数</label><input type="number" value="60" placeholder="空=不限"></div>
+            <div class="f"><label>旅行日期起</label><input type="text" placeholder="可选 20260101"></div>
+            <div class="f"><label>旅行日期止</label><input type="text" placeholder="可选 20261225"></div>
+            <div class="f"><label>活动日期起</label><input type="text" placeholder="可选"></div>
+            <div class="f"><label>活动日期止</label><input type="text" placeholder="结束日锁定销售结束"></div>
+            <div class="f"><label>销售日期起</label><input type="text" value="20260901"></div>
+            <div class="f"><label>销售日期止</label><input type="text" value="20261225"></div>
+            <div class="f"><label>最小票面</label><input type="number" value="1"></div>
+            <div class="f"><label>最大票面</label><input type="number" value="1000"></div>
+            <div class="span4 hint">销售开始可在活动前 / 中 / 后；销售结束必须与活动同一天。阈值允许负数：-15 表示最多亏 15。</div>
+          </div>
+          <table style="margin-top:10px;">
+            <thead><tr><th></th><th>返点 %</th><th>留钱</th><th>税点 %</th><th>税钱</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>成人</td>
+                <td><input type="number" id="adtR" value="-1.5" step="0.1" style="min-width:80px"></td>
+                <td><input type="number" id="adtK" value="-5" step="0.1" style="min-width:80px"></td>
+                <td><input type="number" value="0" style="min-width:80px"></td>
+                <td><input type="number" value="0" style="min-width:80px"></td>
+              </tr>
+              <tr>
+                <td>儿童</td>
+                <td><input type="number" id="chdR" value="0" step="0.1" style="min-width:80px"></td>
+                <td><input type="number" id="chdK" value="0" step="0.1" style="min-width:80px"></td>
+                <td><input type="number" value="0" style="min-width:80px"></td>
+                <td><input type="number" value="0" style="min-width:80px"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top:12px;">
+            <button class="btn btn-p" id="btnSave">保存并立即下发缓存</button>
+            <button class="btn" data-page="rules">取消</button>
+          </div>
+        </div>
+        <div class="card calc">
+          <h2 style="font-size:13px;margin-bottom:8px;">试算（成人票面）</h2>
+          <div class="f" style="margin-bottom:8px;">
+            <label>官网票面</label>
+            <input type="number" id="offFare" value="800">
+          </div>
+          <p class="hint" id="calcF">800 + (800 × -0.015) + (-5)</p>
+          <p class="muted" style="margin:8px 0 4px;">修正票面</p>
+          <div class="big" id="calcV">783</div>
+          <p class="hint" style="margin-top:10px;">公式：修正票面 = 官网票面 + (官网票面 × 返点) + 留钱。儿童字段独立，当前为 0。</p>
+          <p class="hint" style="margin-top:8px;">利润低于阈值时自动追加至阈值后再下发。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- P3 -->
+    <section id="quote" class="page">
+      <div class="crumbs">运价管理 / 询价试算</div>
+      <div class="card">
+        <div class="bar"><h2>按店铺 + 航线日期询价</h2></div>
+        <div class="row" style="margin-bottom:12px;">
+          <div class="f"><label>店铺</label>
+            <select><option selected>ZML</option><option>ZYP</option></select>
+          </div>
+          <div class="f"><label>航线 + 日期</label>
+            <input type="text" value="YULEWR20260908" style="min-width:180px;">
+          </div>
+          <div class="f"><label>航班</label><input type="text" value="GK100"></div>
+          <div class="f"><label>行程</label><select><option>单程</option><option>往返</option><option>中转</option></select></div>
+          <div class="f"><label>&nbsp;</label><button class="btn btn-p">询价</button></div>
+        </div>
+        <p class="hint" style="margin-bottom:8px;">解析：YUL → EWR，2026-09-08。命中政策 QNGK。</p>
+        <div class="split">
+          <div class="quote">
+            <div class="muted">GK100 · 成人</div>
+            <div class="price">1045</div>
+            <p>票面 (1000-5)　税费 (50+0)</p>
+            <p class="hint" style="margin-top:6px;">995 + 50 = 1045</p>
+          </div>
+          <div class="quote">
+            <div class="muted">GK100 · 儿童</div>
+            <div class="price">1050</div>
+            <p>票面 (1000+0)　税费 (50+0)</p>
+            <p class="hint" style="margin-top:6px;">1000 + 50 = 1050</p>
+          </div>
+        </div>
+        <table style="margin-top:12px;">
+          <thead><tr><th>政策代码</th><th>类型</th><th>店铺</th><th>阈值</th><th>自动追加</th><th>缓存</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>QNGK</td><td>普通</td><td>ZML</td><td>-15</td><td>0</td><td class="ok">已同步</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- P4 -->
+    <section id="orders" class="page">
+      <div class="crumbs">订单管理 / 订单列表</div>
+      <div class="card">
+        <div class="bar"><h2>订单</h2><span class="hint">来源：去哪儿同步</span></div>
+        <table>
+          <thead>
+            <tr>
+              <th>本单</th><th>外单</th><th>状态</th><th>来源</th><th>总价</th>
+              <th>创建时间</th><th>支付时间</th><th>最晚出票</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="clk" data-page="detail">
+              <td>【本】QN20260902104722XXXF</td>
+              <td>【外】zml260902051659159fe0a1</td>
+              <td><span class="st">出票中</span></td>
+              <td>去哪儿</td>
+              <td>1000</td>
+              <td>2026/9/2 10:58</td>
+              <td>10:59</td>
+              <td><span class="warn">2026/9/5 10:58</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint" style="margin-top:8px;">最晚出票以警示色标注。点击行打开详情。</p>
+      </div>
+    </section>
+
+    <!-- P5 -->
+    <section id="detail" class="page">
+      <div class="crumbs">订单管理 / 订单详情</div>
+      <div class="card">
+        <div class="bar">
+          <h2>QN20260902104722XXXF</h2>
+          <div>
+            <button class="btn btn-p" data-page="purchase">采购录入</button>
+            <button class="btn" id="btnEmer">紧急二次录入</button>
+            <button class="btn btn-w" id="btnVoid">作废</button>
+          </div>
+        </div>
+        <p>【外】zml260902051659159fe0a1　<span class="st">出票中</span>　来源 去哪儿　总价 1000</p>
+        <p class="hint">创建 2026/9/2 10:58　支付 10:59　<span class="warn">最晚出票 2026/9/5 10:58</span></p>
+      </div>
+      <div class="grid3">
+        <div class="card">
+          <h2 style="font-size:13px;margin-bottom:8px;">行程</h2>
+          <div class="kv">
+            <b>航司</b><span>GK</span>
+            <b>行程</b><span>单程</span>
+            <b>航班</b><span>GK100</span>
+            <b>航线</b><span>CGO-ICN</span>
+            <b>仓位</b><span>N</span>
+            <b>成人价</b><span>995</span>
+            <b>儿童价</b><span>1000</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2 style="font-size:13px;margin-bottom:8px;">联系人</h2>
+          <div class="kv">
+            <b>姓名</b><span>zhang/san</span>
+            <b>电话</b><span>13800138000</span>
+            <b>邮箱</b><span>zhang.san@example.com</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2 style="font-size:13px;margin-bottom:8px;">政策快照</h2>
+          <div class="kv">
+            <b>政策编码</b><span>QNGK</span>
+            <b>类型</b><span>普通</span>
+            <b>价格区间</b><span>1–1000</span>
+            <b>最低利润</b><span>-15</span>
+            <b>成人</b><span>-1 / 1 / -1 / 1</span>
+            <b></b><span class="hint">返点 / 留钱 / 税点 / 税钱</span>
+            <b>更新时间</b><span>2026-09-02 10:40</span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 style="font-size:13px;margin-bottom:8px;">乘机人</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>姓名</th><th>类型</th><th>性别</th><th>出生日期（起飞日年龄）</th>
+              <th>护照</th><th>国籍</th><th>签发地</th><th>有效期</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ZHANG/SAN</td><td>成人</td><td>男</td>
+              <td>1988-04-20（起飞日 38 岁）</td>
+              <td>EA1561562</td><td>CN</td><td>CN</td><td>2030-04-20</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2 style="font-size:13px;margin-bottom:8px;">辅营</h2>
+        <table>
+          <thead>
+            <tr><th>名称</th><th>添加方式</th><th>规格</th><th>数量</th><th>合计</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>托运行李</td><td>辅营打包</td><td>18KG</td><td>1 件</td><td>500</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- P6 -->
+    <section id="purchase" class="page">
+      <div class="crumbs">订单管理 / 采购录入 · QN20260902104722XXXF</div>
+      <div class="card">
+        <div class="bar">
+          <h2>票号录入</h2>
+          <div class="seg">
+            <button type="button" class="on" id="modeAll">整单录入</button>
+            <button type="button" id="modeOne">按人录入</button>
+          </div>
+        </div>
+        <p class="hint" id="modeHint" style="margin-bottom:8px;">当前：一次提交全部乘机人的 PNR / 票号。</p>
+        <table>
+          <thead><tr><th>乘机人</th><th>类型</th><th>PNR</th><th>票号</th></tr></thead>
+          <tbody id="paxBody">
+            <tr data-pax="0">
+              <td>ZHANG/SAN</td><td>成人</td>
+              <td><input type="text" value="WNT15Z"></td>
+              <td><input type="text" value="0012152152150" style="min-width:160px;"></td>
+            </tr>
+            <tr data-pax="1">
+              <td>LI/XIAO</td><td>成人</td>
+              <td><input type="text" value="WNT15Z"></td>
+              <td><input type="text" value="0012152152161" style="min-width:160px;"></td>
+            </tr>
+            <tr data-pax="2">
+              <td>WANG/FANG</td><td>儿童</td>
+              <td><input type="text" value="WNT15Z"></td>
+              <td><input type="text" value="0012152152172" style="min-width:160px;"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2 style="font-size:13px;margin-bottom:8px;">采购信息</h2>
+        <div class="form-g">
+          <div class="f"><label>采购平台</label><input type="text" value="携程"></div>
+          <div class="f"><label>采购账号</label><input type="text" value="zml_gk_01"></div>
+          <div class="f"><label>采购订单号</label><input type="text" value="CT20260902110088"></div>
+          <div class="f"><label>采购币种</label><select><option selected>USD</option><option>CNY</option></select></div>
+          <div class="f span2"><label>支付方式</label>
+            <select>
+              <option selected>携程卡</option>
+              <option>个人卡</option>
+              <option>支付宝</option>
+              <option>微信</option>
+              <option>路涛</option>
+              <option>空中云汇</option>
+            </select>
+          </div>
+          <div class="f"><label>外币金额</label><input type="text" value="142.50"></div>
+          <div class="f"><label>卡号</label><input type="text" value="6234 **** 8891"></div>
+          <div class="f"><label>流水号</label><input type="text" value="2026090211023344"></div>
+          <div class="f"><label>银行汇率</label><input type="text" value="6.7" readonly></div>
+          <div class="f"><label>系统汇率（加价）</label><input type="text" value="6.8" readonly></div>
+          <div class="f"><label>人民币成本</label><input type="text" value="969.00" readonly></div>
+          <div class="f span2"><label>亏损原因</label><input type="text" placeholder="利润为负或低于预期时填写"></div>
+          <div class="f span2"><label>备注</label><input type="text"></div>
+        </div>
+        <p class="hint" style="margin:8px 0;">当日银行汇率加价进位以免亏损：6.7 → 6.8。142.50 × 6.8 = 969.00。</p>
+        <button class="btn btn-p" id="btnBuy">提交采购</button>
+        <button class="btn" data-page="detail">返回详情</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="mask" id="maskImport">
+  <div class="dlg">
+    <h3>批量导入</h3>
+    <p>上传 Excel / CSV，列与手工新建字段一致。同一文件内（店铺, 政策代码）不得重复。</p>
+    <p class="hint" style="margin:8px 0;">导入成功后立即下发并刷新缓存。</p>
+    <input type="text" value="fare-rules-zml.xlsx" readonly style="width:100%;margin-bottom:10px;">
+    <button class="btn btn-p" id="doImport">确认导入并下发</button>
+    <button class="btn" data-close="maskImport">取消</button>
+  </div>
+</div>
+<div class="mask" id="maskEmer">
+  <div class="dlg">
+    <h3>紧急二次录入（需权限）</h3>
+    <p class="hint" style="margin-bottom:8px;">已出票后漏采，不走过作废。</p>
+    <div class="f" style="margin-bottom:8px;">
+      <label>原因</label>
+      <select>
+        <option>行李</option>
+        <option>餐食</option>
+        <option>降舱开票</option>
+      </select>
+    </div>
+    <div class="f" style="margin-bottom:10px;"><label>说明</label><input type="text" style="width:100%;"></div>
+    <button class="btn btn-p" id="doEmer">提交补录</button>
+    <button class="btn" data-close="maskEmer">取消</button>
+  </div>
+</div>
+<div class="mask" id="maskVoid">
+  <div class="dlg">
+    <h3>作废采购</h3>
+    <p>作废错误采购记录后可重新录入。本单号、外单号、行程与乘机人不变。</p>
+    <div class="f" style="margin:10px 0;"><label>原因</label><input type="text" style="width:100%;" value="票号录错"></div>
+    <button class="btn btn-w" id="doVoid">确认作废并重录</button>
+    <button class="btn" data-close="maskVoid">取消</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var navMap = {
+    ia: [],
+    rules: ["nav-rules"],
+    create: ["nav-create"],
+    quote: ["nav-quote"],
+    orders: ["nav-orders"],
+    detail: ["nav-detail"],
+    purchase: ["nav-purchase"]
+  };
+
+  function toast(msg) {
+    var el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "toast on";
+    setTimeout(function () { el.className = "toast"; }, 1800);
+  }
+
+  function showPage(id) {
+    document.querySelectorAll(".page").forEach(function (p) { p.classList.remove("on"); });
+    document.querySelectorAll(".tab").forEach(function (t) { t.classList.toggle("on", t.getAttribute("data-page") === id); });
+    var page = document.getElementById(id);
+    if (page) page.classList.add("on");
+    document.querySelectorAll(".side a").forEach(function (a) { a.classList.remove("on"); });
+    (navMap[id] || []).forEach(function (cls) {
+      document.querySelectorAll("." + cls).forEach(function (a) { a.classList.add("on"); });
+    });
+  }
+
+  document.querySelectorAll(".tab, .side a, [data-page]").forEach(function (el) {
+    el.addEventListener("click", function (e) {
+      var id = el.getAttribute("data-page");
+      if (!id) return;
+      e.preventDefault();
+      showPage(id);
+      var extra = el.getAttribute("data-extra");
+      if (extra === "import") document.getElementById("maskImport").classList.add("on");
+      if (extra === "emer") document.getElementById("maskEmer").classList.add("on");
+      if (extra === "void") document.getElementById("maskVoid").classList.add("on");
+    });
+  });
+
+  document.getElementById("btnImport").onclick = function () {
+    document.getElementById("maskImport").classList.add("on");
+  };
+  document.getElementById("btnEmer").onclick = function () {
+    document.getElementById("maskEmer").classList.add("on");
+  };
+  document.getElementById("btnVoid").onclick = function () {
+    document.getElementById("maskVoid").classList.add("on");
+  };
+  document.querySelectorAll("[data-close]").forEach(function (b) {
+    b.onclick = function () { document.getElementById(b.getAttribute("data-close")).classList.remove("on"); };
+  });
+  document.getElementById("doImport").onclick = function () {
+    document.getElementById("maskImport").classList.remove("on");
+    toast("已导入并立即刷新缓存");
+  };
+  document.getElementById("doEmer").onclick = function () {
+    document.getElementById("maskEmer").classList.remove("on");
+    toast("紧急二次录入已提交");
+  };
+  document.getElementById("doVoid").onclick = function () {
+    document.getElementById("maskVoid").classList.remove("on");
+    toast("采购已作废，可重新录入");
+    showPage("purchase");
+  };
+  document.getElementById("btnSave").onclick = function () { toast("已保存并立即下发缓存"); };
+  document.getElementById("btnBuy").onclick = function () { toast("采购已提交"); };
+
+  function mutex(src, other) {
+    src.addEventListener("input", function () {
+      if (src.value.trim()) other.value = "";
+    });
+  }
+  mutex(document.getElementById("incFlt"), document.getElementById("excFlt"));
+  mutex(document.getElementById("excFlt"), document.getElementById("incFlt"));
+
+  function calc() {
+    var fare = Number(document.getElementById("offFare").value) || 0;
+    var r = Number(document.getElementById("adtR").value) || 0;
+    var k = Number(document.getElementById("adtK").value) || 0;
+    var mid = fare * (r / 100);
+    var out = fare + mid + k;
+    document.getElementById("calcF").textContent =
+      fare + " + (" + fare + " × " + (r / 100) + ") + (" + k + ")";
+    document.getElementById("calcV").textContent = String(Math.round(out * 100) / 100);
+  }
+  ["offFare", "adtR", "adtK"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", calc);
+  });
+  calc();
+
+  var modeAll = document.getElementById("modeAll");
+  var modeOne = document.getElementById("modeOne");
+  function setMode(all) {
+    modeAll.className = all ? "on" : "";
+    modeOne.className = all ? "" : "on";
+    document.getElementById("modeHint").textContent = all
+      ? "当前：一次提交全部乘机人的 PNR / 票号。"
+      : "当前：按人逐条录入。仅第一位可编辑，其余行只读。";
+    document.querySelectorAll("#paxBody tr").forEach(function (tr, i) {
+      tr.querySelectorAll("input").forEach(function (inp) { inp.disabled = !all && i !== 0; });
+    });
+  }
+  modeAll.onclick = function () { setMode(true); };
+  modeOne.onclick = function () { setMode(false); };
+})();
+</script>
+</body>
+</html>

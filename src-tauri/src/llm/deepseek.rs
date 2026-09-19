@@ -64,28 +64,6 @@ impl DeepSeekClient {
         Ok(reply)
     }
 
-    /// One-shot correction of ASR text; does not touch chat history.
-    pub fn polish_transcript(settings: &Settings, rough: &str) -> Result<String, String> {
-        if settings.api_key.trim().is_empty() {
-            return Err("请先在设置中配置 DeepSeek API Key".into());
-        }
-        let rough = rough.trim();
-        if rough.is_empty() {
-            return Err("没有可校对的转写文本".into());
-        }
-        let messages = vec![
-            ChatMessage {
-                role: "system".into(),
-                content: "你是中文语音转写校对助手。用户会给你一段可能有同音错字、断句错误的会议转写草稿。请结合语境修正为通顺、准确的简体中文。要求：1) 尽量保留原意，不要编造未出现的关键信息；2) 只输出修正后的正文，不要解释。".into(),
-            },
-            ChatMessage {
-                role: "user".into(),
-                content: format!("请校对下面的会议转写草稿：\n\n{rough}"),
-            },
-        ];
-        Self::chat_once(settings, &messages)
-    }
-
     fn chat_once(settings: &Settings, messages: &[ChatMessage]) -> Result<String, String> {
         let base = settings.base_url.trim_end_matches('/');
         let url = format!("{base}/chat/completions");
