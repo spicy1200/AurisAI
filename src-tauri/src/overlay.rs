@@ -171,6 +171,18 @@ fn apply_shell_geometry(win: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+fn pin_overlay_shell(win: &WebviewWindow) {
+    let _ = win.set_decorations(false);
+    let _ = win.set_skip_taskbar(true);
+    let _ = win.set_content_protected(true);
+    let _ = win.set_background_color(Some(Color(0, 0, 0, 0)));
+    let _ = win.show();
+    let _ = win.unminimize();
+    // After show: Windows can drop HWND_TOPMOST if this runs too early.
+    let _ = win.set_always_on_top(true);
+    let _ = win.set_focus();
+}
+
 /// Transform the *main* window into the interview shell (no second webview).
 /// Secondary windows were blank under Tauri CSP / External URL; in-place is reliable.
 pub fn enter_overlay(app: &AppHandle, use_mode: &str) -> Result<(), String> {
@@ -180,17 +192,10 @@ pub fn enter_overlay(app: &AppHandle, use_mode: &str) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or_else(|| "主窗口不存在".to_string())?;
 
-    let _ = main.set_decorations(false);
-    let _ = main.set_always_on_top(true);
-    let _ = main.set_skip_taskbar(true);
-    let _ = main.set_content_protected(true);
-    let _ = main.set_background_color(Some(Color(0, 0, 0, 0)));
     apply_shell_geometry(&main)?;
     // Default click-through; frontend toggles ignore off only over interactive hits.
     let _ = main.set_ignore_cursor_events(true);
-    let _ = main.show();
-    let _ = main.unminimize();
-    let _ = main.set_focus();
+    pin_overlay_shell(&main);
 
     let _ = app.emit(
         "overlay-ui-enter",
@@ -211,7 +216,7 @@ pub fn exit_overlay(app: &AppHandle) -> Result<(), String> {
         let _ = main.set_content_protected(false);
         let _ = main.set_always_on_top(false);
         let _ = main.set_skip_taskbar(false);
-        let _ = main.set_decorations(true);
+        let _ = main.set_decorations(false);
         let _ = main.set_background_color(Some(Color(0, 0, 0, 0)));
         let _ = main.set_size(LogicalSize::new(900.0, 620.0));
         let _ = main.center();
@@ -228,9 +233,8 @@ pub fn set_overlay_visible(app: &AppHandle, visible: bool) -> Result<(), String>
     // Shell lives on main — toggle always-on-top hide via minimize/show of main.
     if let Some(main) = app.get_webview_window("main") {
         if visible {
-            let _ = main.show();
-            let _ = main.unminimize();
-            let _ = main.set_focus();
+            let _ = main.set_ignore_cursor_events(true);
+            pin_overlay_shell(&main);
         } else {
             let _ = main.hide();
         }

@@ -7,9 +7,18 @@ import {
   invoke,
   isAuthExpiredError,
 } from "./tauri";
+import { appLogo, sideLogo } from "./brand";
+import { resolveWebBase, WEB_PATHS, webPageUrl } from "./site";
 import { AuthScreen, type InterviewAccount } from "./AuthScreen";
 import { ChatMarkdown } from "./ChatMarkdown";
 import InterviewOverlay from "./InterviewOverlay";
+import {
+  OnboardGuide,
+  readOnboardDone,
+  writeOnboardDone,
+  type OnboardPrepare,
+} from "./OnboardGuide";
+import { AppFrame, TitleBar, WindowControls, beginWindowDrag } from "./TitleBar";
 import {
   defaultShortcutMap,
   mergeShortcutMap,
@@ -79,7 +88,7 @@ function accentCss(accent: UiAccent): { accent: string; hover: string } {
     case "orange":
       return { accent: "#ea580c", hover: "#c2410c" };
     default:
-      return { accent: "#4d6bfe", hover: "#3b57e8" };
+      return { accent: "#3d6b7a", hover: "#315866" };
   }
 }
 
@@ -129,8 +138,28 @@ interface ProfileSummary {
   is_active: boolean;
 }
 
+type ProfileEditorDraft = {
+  resume: string;
+  jd: string;
+  name: string;
+  language: string;
+  skills: string;
+  profileId: string;
+};
+
+function editorContentKey(
+  d: Pick<ProfileEditorDraft, "resume" | "jd" | "name" | "language" | "skills">,
+) {
+  return JSON.stringify({
+    resume: d.resume,
+    jd: d.jd,
+    name: (d.name || "").trim() || "默认档案",
+    language: d.language || "",
+    skills: d.skills || "",
+  });
+}
+
 const PROFILE_LANGUAGES = ["中文", "English"] as const;
-const WEB_DOCS_BASE = "http://127.0.0.1:5173";
 
 type AccessMode = "ask" | "full";
 type InterviewUseMode = "meeting" | "stealth";
@@ -163,12 +192,21 @@ function clearStoredInterviewUseMode() {
   }
 }
 
-function tourStorageKey(email: string) {
-  return `aurisai-nav-tour:${email.trim().toLowerCase()}`;
-}
-
 function accessStorageKey(email: string) {
   return `aurisai-access-mode:${email.trim().toLowerCase()}`;
+}
+
+function afterPaint(fn: () => void) {
+  let cancelled = false;
+  const id = window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (!cancelled) fn();
+    });
+  });
+  return () => {
+    cancelled = true;
+    window.cancelAnimationFrame(id);
+  };
 }
 
 function formatRoundTime(raw: string) {
@@ -236,6 +274,20 @@ function IconHelp() {
         strokeLinecap="round"
       />
       <path d="M12 16.8v.3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconGuide() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M6 20V5.5A1.5 1.5 0 0 1 7.5 4H17l-1.4 3.4L17 10.8H8"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M6 20V4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }
@@ -398,16 +450,46 @@ function IconUser() {
   );
 }
 
-function IconRecords() {
+function IconProfile() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M8 4.5h8A2.5 2.5 0 0 1 18.5 7v12A1.5 1.5 0 0 1 17 20.5H7A1.5 1.5 0 0 1 5.5 19V7A2.5 2.5 0 0 1 8 4.5Z"
+        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 2v6h6M8 13h8M8 17h5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconRecords() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect
+        x="8"
+        y="2.5"
+        width="8"
+        height="3.5"
+        rx="1"
         stroke="currentColor"
         strokeWidth="1.75"
       />
       <path
-        d="M9 9.5h6M9 13h6M9 16.5h4"
+        d="M16 4.5h2A2 2 0 0 1 20 6.5v13A2 2 0 0 1 18 21.5H6A2 2 0 0 1 4 19.5v-13A2 2 0 0 1 6 4.5h2"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 11h.01M8 15.5h.01M12 11h6M12 15.5h6"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
@@ -424,6 +506,28 @@ function IconPlus() {
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconChevron({ dir }: { dir: "left" | "right" | "up" | "down" }) {
+  const d =
+    dir === "left"
+      ? "M14.5 6.5 9 12l5.5 5.5"
+      : dir === "right"
+        ? "M9.5 6.5 15 12l-5.5 5.5"
+        : dir === "up"
+          ? "M6.5 14.5 12 9l5.5 5.5"
+          : "M6.5 9.5 12 15l5.5-5.5";
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d={d}
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -561,18 +665,20 @@ function App() {
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const [, setAnswers] = useState<InterviewAnswer[]>([]);
-  const [navCollapsed, setNavCollapsed] = useState(false);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const [recordsCollapsed, setRecordsCollapsed] = useState(false);
+  const [profileCollapsed, setProfileCollapsed] = useState(false);
   const [interviewing, setInterviewing] = useState(false);
   const [, setInterviewerFinals] = useState<string[]>([]);
   const [, setInterviewerPartial] = useState("");
   const [, setSelfFinals] = useState<string[]>([]);
   const [, setSelfPartial] = useState("");
-  const [logoutConfirm, setLogoutConfirm] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [showMeMenu, setShowMeMenu] = useState(false);
   const [balanceMinutes, setBalanceMinutes] = useState(0);
-  const [showNavTour, setShowNavTour] = useState(false);
+  const [showOnboard, setShowOnboard] = useState(() => !readOnboardDone());
+  const [onboardSeq, setOnboardSeq] = useState(0);
+  const [showOnboardDemo, setShowOnboardDemo] = useState(false);
   const [rounds, setRounds] = useState<InterviewRound[]>([]);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [recordAnswers, setRecordAnswers] = useState<InterviewAnswer[]>([]);
@@ -598,6 +704,30 @@ function App() {
   const pageHeadingRef = useRef<HTMLHeadingElement>(null);
   const interviewReconcileOnceRef = useRef(false);
   const authExpiredHandlingRef = useRef(false);
+  const interviewingRef = useRef(false);
+  const overlayGenRef = useRef(0);
+  const onboardShellRef = useRef(false);
+  const materialsEpochRef = useRef(0);
+  const addingProfileRef = useRef(false);
+  const [addingProfile, setAddingProfile] = useState(false);
+  const editorRef = useRef<ProfileEditorDraft>({
+    resume: "",
+    jd: "",
+    name: "默认档案",
+    language: "",
+    skills: "",
+    profileId: "",
+  });
+  const cleanContentKeyRef = useRef(
+    editorContentKey({
+      resume: "",
+      jd: "",
+      name: "默认档案",
+      language: "",
+      skills: "",
+    }),
+  );
+  const profileDraftsRef = useRef(new Map<string, ProfileEditorDraft>());
 
   const clearLocalSession = useCallback(() => {
     setResumeText("");
@@ -608,6 +738,16 @@ function App() {
     setMaterialsReady(false);
     setProfileId("");
     setProfiles([]);
+    profileDraftsRef.current.clear();
+    editorRef.current = {
+      resume: "",
+      jd: "",
+      name: "默认档案",
+      language: "",
+      skills: "",
+      profileId: "",
+    };
+    cleanContentKeyRef.current = editorContentKey(editorRef.current);
     setSessions([]);
     setChat([]);
     setCurrentSessionId(null);
@@ -674,6 +814,21 @@ function App() {
     }
   }, []);
 
+  const applyEditorDraft = useCallback((draft: ProfileEditorDraft, asClean: boolean) => {
+    setResumeText(draft.resume);
+    setJdText(draft.jd);
+    setProfileName(draft.name.trim() || "默认档案");
+    setProfileLanguage(draft.language);
+    setSkillsText(draft.skills);
+    setMaterialsReady(Boolean(draft.resume.trim() && draft.jd.trim()));
+    setProfileId(draft.profileId);
+    editorRef.current = draft;
+    if (asClean) {
+      cleanContentKeyRef.current = editorContentKey(draft);
+      if (draft.profileId) profileDraftsRef.current.delete(draft.profileId);
+    }
+  }, []);
+
   const applyMaterials = useCallback((mat: MaterialsView) => {
     const anyMat = mat as MaterialsView & {
       profileName?: string;
@@ -681,16 +836,32 @@ function App() {
       Resume?: string;
       Jd?: string;
     };
-    setResumeText(mat.resume ?? anyMat.Resume ?? "");
-    setJdText(mat.jd ?? anyMat.Jd ?? "");
-    setProfileName(
-      (mat.profile_name ?? anyMat.profileName)?.trim() || "默认档案",
+    applyEditorDraft(
+      {
+        resume: mat.resume ?? anyMat.Resume ?? "",
+        jd: mat.jd ?? anyMat.Jd ?? "",
+        name: (mat.profile_name ?? anyMat.profileName)?.trim() || "默认档案",
+        language: mat.language || "",
+        skills: mat.skills || "",
+        profileId: mat.profile_id ?? anyMat.profileId ?? "",
+      },
+      true,
     );
-    setProfileLanguage(mat.language || "");
-    setSkillsText(mat.skills || "");
-    setMaterialsReady(Boolean(mat.ready));
-    setProfileId(mat.profile_id ?? anyMat.profileId ?? "");
+  }, [applyEditorDraft]);
+
+  const isEditorDirty = useCallback(() => {
+    return editorContentKey(editorRef.current) !== cleanContentKeyRef.current;
   }, []);
+
+  const stashCurrentDraft = useCallback(() => {
+    const cur = editorRef.current;
+    if (!cur.profileId) return;
+    if (isEditorDirty()) {
+      profileDraftsRef.current.set(cur.profileId, { ...cur });
+    } else {
+      profileDraftsRef.current.delete(cur.profileId);
+    }
+  }, [isEditorDirty]);
 
   const refreshProfiles = useCallback(async () => {
     try {
@@ -703,11 +874,41 @@ function App() {
 
   const refreshMaterials = useCallback(
     async (opts?: { quiet?: boolean; profileId?: string }) => {
+      const epoch = materialsEpochRef.current;
+      const requestedId = (opts?.profileId || "").trim();
       try {
+        if (!requestedId) {
+          const curId = editorRef.current.profileId;
+          if (isEditorDirty()) {
+            await refreshProfiles();
+            return true;
+          }
+          const localDraft = curId ? profileDraftsRef.current.get(curId) : undefined;
+          if (localDraft) {
+            applyEditorDraft(localDraft, false);
+            await refreshProfiles();
+            return true;
+          }
+        }
+        if (requestedId) {
+          const draft = profileDraftsRef.current.get(requestedId);
+          if (draft) {
+            applyEditorDraft(draft, false);
+            await refreshProfiles();
+            return true;
+          }
+        }
         const mat = await invoke<MaterialsView>("get_interview_materials", {
-          profileId: opts?.profileId || undefined,
+          profileId: requestedId || undefined,
         });
-        applyMaterials(mat);
+        if (epoch !== materialsEpochRef.current) return false;
+        const loadedId = (mat.profile_id || requestedId).trim();
+        const draft = loadedId ? profileDraftsRef.current.get(loadedId) : undefined;
+        if (draft) {
+          applyEditorDraft(draft, false);
+        } else {
+          applyMaterials(mat);
+        }
         await refreshProfiles();
         return true;
       } catch (e) {
@@ -720,7 +921,7 @@ function App() {
         return false;
       }
     },
-    [applyMaterials, refreshProfiles],
+    [applyEditorDraft, applyMaterials, isEditorDirty, refreshProfiles],
   );
 
   const refreshAnswers = useCallback(async () => {
@@ -770,8 +971,11 @@ function App() {
     }
   }, []);
 
-  async function openWebPage(path: string) {
-    const url = `${WEB_DOCS_BASE}${path}`;
+  async function openWebPage(
+    path: string,
+    query: Record<string, string | number | undefined | null> = {},
+  ) {
+    const url = webPageUrl(path, query);
     setShowMeMenu(false);
     try {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
@@ -779,6 +983,13 @@ function App() {
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  function accountWebQuery() {
+    return {
+      email: settings.interview_email.trim() || undefined,
+      minutes: balanceMinutes,
+    };
   }
 
   function persistAccessMode(mode: AccessMode) {
@@ -801,13 +1012,64 @@ function App() {
     });
   }
 
-  function dismissNavTour(email: string) {
-    try {
-      localStorage.setItem(tourStorageKey(email), "1");
-    } catch {
-      /* ignore */
+  interviewingRef.current = interviewing;
+
+  function leaveOnboardOverlay() {
+    setShowOnboardDemo(false);
+    setShowInterviewModeModal(false);
+    if (interviewingRef.current || !onboardShellRef.current) return;
+    onboardShellRef.current = false;
+    overlayGenRef.current += 1;
+    setInterviewShell(false);
+    if (isTauri()) {
+      void invoke("exit_interview_overlay").catch(() => undefined);
     }
-    setShowNavTour(false);
+  }
+
+  function prepareOnboard(prep: OnboardPrepare) {
+    setPage(prep.page);
+    setShowMeMenu(false);
+    setShowSettings(false);
+    setShowInterviewModeModal(prep.modeModal);
+    setShowOnboardDemo(prep.demoPanel);
+    if (prep.demoPanel) {
+      const gen = overlayGenRef.current + 1;
+      overlayGenRef.current = gen;
+      onboardShellRef.current = true;
+      setInterviewShell(true);
+      if (!isTauri()) return;
+      void invoke("enter_interview_overlay", { useMode: "meeting" })
+        .then(async () => {
+          if (overlayGenRef.current !== gen) return;
+          const win = getCurrentWindow();
+          await win.setIgnoreCursorEvents(false);
+          await win.setAlwaysOnTop(true);
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (onboardShellRef.current && !interviewingRef.current) {
+      onboardShellRef.current = false;
+      overlayGenRef.current += 1;
+      setInterviewShell(false);
+      if (isTauri()) {
+        void invoke("exit_interview_overlay").catch(() => undefined);
+      }
+    }
+  }
+
+  function dismissOnboard() {
+    writeOnboardDone();
+    setShowOnboard(false);
+    leaveOnboardOverlay();
+  }
+
+  function replayOnboard() {
+    leaveOnboardOverlay();
+    setShowMeMenu(false);
+    setShowSettings(false);
+    setOnboardSeq((n) => n + 1);
+    setShowOnboard(true);
   }
 
   useEffect(() => {
@@ -1162,17 +1424,30 @@ function App() {
   ]);
 
   useEffect(() => {
+    editorRef.current = {
+      resume: resumeText,
+      jd: jdText,
+      name: profileName,
+      language: profileLanguage,
+      skills: skillsText,
+      profileId,
+    };
+  }, [resumeText, jdText, profileName, profileLanguage, skillsText, profileId]);
+
+  useEffect(() => {
     if (!settings.interview_token.trim() || !isTauri()) return;
-    if (page !== "me") return;
-    void refreshMaterials();
-  }, [page, settings.interview_token, refreshMaterials]);
+    if (page !== "me") {
+      stashCurrentDraft();
+      return;
+    }
+    return afterPaint(() => {
+      void refreshMaterials({ quiet: true });
+    });
+  }, [page, settings.interview_token, refreshMaterials, stashCurrentDraft]);
 
   useEffect(() => {
     if (!settings.interview_email.trim()) return;
     try {
-      if (!localStorage.getItem(tourStorageKey(settings.interview_email))) {
-        setShowNavTour(true);
-      }
       const stored = localStorage.getItem(accessStorageKey(settings.interview_email));
       setAccessMode(stored === "full" ? "full" : "ask");
     } catch {
@@ -1186,7 +1461,6 @@ function App() {
       const root = meMenuRef.current;
       if (root && ev.target instanceof Node && !root.contains(ev.target)) {
         setShowMeMenu(false);
-        setLogoutConfirm(false);
       }
     }
     document.addEventListener("mousedown", onDoc);
@@ -1194,9 +1468,10 @@ function App() {
   }, [showMeMenu]);
 
   useEffect(() => {
-    if (page === "records") {
+    if (page !== "records") return;
+    return afterPaint(() => {
       void refreshRounds();
-    }
+    });
   }, [page, refreshRounds]);
 
   useEffect(() => {
@@ -1314,9 +1589,6 @@ function App() {
     setError("");
     setStatus(`已登录 ${email}`);
     setPage("chat");
-    void refreshMaterials();
-    void refreshMe();
-    void refreshSessions();
   }
 
   async function onLogoutInterview() {
@@ -1336,7 +1608,6 @@ function App() {
       setSkillsText("");
       setMaterialsReady(false);
       setStatus("已退出登录");
-      setLogoutConfirm(false);
       setShowMeMenu(false);
       setPage("chat");
     } catch (e) {
@@ -1530,6 +1801,7 @@ function App() {
     if (!approved) {
       return;
     }
+    materialsEpochRef.current += 1;
     try {
       const mat = await invoke<MaterialsView>("save_interview_materials", {
         resume: resumeText,
@@ -1549,12 +1821,34 @@ function App() {
   }
 
   async function onAddProfileDraft() {
+    if (addingProfileRef.current) return;
+    addingProfileRef.current = true;
+    setAddingProfile(true);
     setError("");
-    const approved = await requireApprove(
-      "新建档案",
-      "会新增一份空白档案，并切到新档案编辑。已有档案不会被删除或覆盖。确定新建？",
-    );
-    if (!approved) return;
+    setProfileCollapsed(false);
+    materialsEpochRef.current += 1;
+    const epoch = materialsEpochRef.current;
+    const tempId = `draft-${Date.now()}`;
+    setProfiles((prev) => [
+      {
+        id: tempId,
+        name: "新档案",
+        language: "",
+        ready: false,
+        is_active: true,
+      },
+      ...prev.map((p) => ({ ...p, is_active: false })),
+    ]);
+    applyMaterials({
+      resume: "",
+      jd: "",
+      ready: false,
+      profile_name: "新档案",
+      language: "",
+      skills: "",
+      profile_id: tempId,
+    });
+    setStatus("已新建空白档案，填写后请点「保存档案」");
     try {
       const mat = await invoke<MaterialsView>("save_interview_materials", {
         resume: "",
@@ -1564,11 +1858,67 @@ function App() {
         skills: "",
         createNew: true,
       });
-      applyMaterials(mat);
-      await refreshProfiles();
-      setStatus("已新建空白档案，填写后请点「保存档案」");
+      const realId = (mat.profile_id || "").trim();
+      const stashed = profileDraftsRef.current.get(tempId);
+      if (realId && tempId !== realId) {
+        if (stashed) {
+          profileDraftsRef.current.delete(tempId);
+          profileDraftsRef.current.set(realId, { ...stashed, profileId: realId });
+        } else if (editorRef.current.profileId === tempId && isEditorDirty()) {
+          profileDraftsRef.current.set(realId, {
+            ...editorRef.current,
+            profileId: realId,
+          });
+        }
+      }
+      setProfiles((prev) => {
+        const rest = prev.filter((p) => p.id !== tempId && p.id !== realId);
+        if (!realId) return rest;
+        const keepLocal =
+          isEditorDirty() &&
+          (editorRef.current.profileId === tempId ||
+            editorRef.current.profileId === realId);
+        return [
+          {
+            id: realId,
+            name: keepLocal
+              ? editorRef.current.name.trim() || "新档案"
+              : mat.profile_name?.trim() || "新档案",
+            language: keepLocal
+              ? editorRef.current.language
+              : mat.language || "",
+            ready: keepLocal
+              ? Boolean(
+                  editorRef.current.resume.trim() && editorRef.current.jd.trim(),
+                )
+              : Boolean(mat.ready),
+            is_active: epoch === materialsEpochRef.current,
+          },
+          ...rest.map((p) => ({ ...p, is_active: false })),
+        ];
+      });
+      if (epoch !== materialsEpochRef.current) {
+        void refreshProfiles();
+        return;
+      }
+      if (isEditorDirty()) {
+        if (realId) {
+          setProfileId(realId);
+          editorRef.current = { ...editorRef.current, profileId: realId };
+        }
+      } else {
+        applyMaterials(mat);
+      }
+      void refreshProfiles();
     } catch (e) {
-      setError(String(e));
+      if (epoch === materialsEpochRef.current) {
+        setProfiles((prev) => prev.filter((p) => p.id !== tempId));
+        setError(String(e));
+        setStatus("");
+      }
+    } finally {
+      addingProfileRef.current = false;
+      setAddingProfile(false);
     }
   }
 
@@ -1588,6 +1938,8 @@ function App() {
       `将删除「${label}」，其他档案不受影响。确定删除？`,
     );
     if (!approved) return;
+    materialsEpochRef.current += 1;
+    profileDraftsRef.current.delete(id);
     try {
       const mat = await invoke<MaterialsView>("delete_interview_profile", {
         profileId: id,
@@ -1602,7 +1954,14 @@ function App() {
 
   async function onSelectProfile(id: string) {
     if (!id || id === profileId) return;
+    if (id.startsWith("draft-")) return;
     setError("");
+    stashCurrentDraft();
+    materialsEpochRef.current += 1;
+    setProfileId(id);
+    setProfiles((prev) =>
+      prev.map((p) => ({ ...p, is_active: p.id === id })),
+    );
     await refreshMaterials({ profileId: id });
   }
 
@@ -1618,6 +1977,21 @@ function App() {
       setStatus("");
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function onDeleteRound(e: MouseEvent, id: string) {
+    e.stopPropagation();
+    setError("");
+    try {
+      await invoke("delete_interview_round", { roundId: id });
+      if (selectedRoundId === id) {
+        setSelectedRoundId(null);
+        setRecordAnswers([]);
+      }
+      await refreshRounds();
+    } catch (err) {
+      setError(String(err));
     }
   }
 
@@ -1641,44 +2015,52 @@ function App() {
 
   if (!loggedIn) {
     return (
-      <AuthScreen
-        persistSettings={persistAuthSettings}
-        onLoggedIn={onAuthLoggedIn}
-      />
+      <AppFrame>
+        <TitleBar variant="auth" />
+        <AuthScreen
+          persistSettings={persistAuthSettings}
+          onLoggedIn={onAuthLoggedIn}
+        />
+      </AppFrame>
     );
   }
 
-  if (interviewShell) {
-    return <InterviewOverlay />;
-  }
-
   return (
+    <div className="app-host">
+    {interviewShell ? (
+      <InterviewOverlay demo={showOnboard && !interviewing} />
+    ) : (
+    <AppFrame>
     <div className="app-shell">
-      <aside className={navCollapsed ? "sidebar collapsed" : "sidebar"}>
-        <div className="side-top">
-          {!navCollapsed && <div className="side-brand">AurisAI</div>}
-          <button
-            type="button"
-            className="side-toggle"
-            title={navCollapsed ? "展开导航" : "收起导航"}
-            onClick={() => setNavCollapsed((v) => !v)}
-          >
-            {navCollapsed ? "›" : "‹"}
-          </button>
+      <aside className="sidebar">
+        <div
+          className="side-top"
+          data-tauri-drag-region
+          onMouseDown={beginWindowDrag}
+          onDoubleClick={() => {
+            if (!isTauri()) return;
+            void getCurrentWindow().toggleMaximize();
+          }}
+        >
+          <WindowControls />
+          <div
+            className="side-top-drag"
+            data-tauri-drag-region
+            onMouseDown={beginWindowDrag}
+          />
         </div>
-        <nav className="side-nav" aria-label="主要">
+        <nav className="side-nav" aria-label="主要" data-tour="nav">
           <button
             type="button"
             className={page === "chat" ? "side-item active" : "side-item"}
             onClick={() => setPage("chat")}
             title="闲聊"
             aria-current={page === "chat" ? "page" : undefined}
-            aria-label={navCollapsed ? "闲聊" : undefined}
           >
             <span className="side-ico">
               <IconChat />
             </span>
-            {!navCollapsed && <span>闲聊</span>}
+            <span>闲聊</span>
           </button>
           <button
             type="button"
@@ -1686,57 +2068,62 @@ function App() {
             onClick={() => setPage("records")}
             title="面试记录"
             aria-current={page === "records" ? "page" : undefined}
-            aria-label={navCollapsed ? "面试记录" : undefined}
           >
             <span className="side-ico">
               <IconRecords />
             </span>
-            {!navCollapsed && <span>面试记录</span>}
+            <span>面试记录</span>
           </button>
           <button
             type="button"
             className={page === "me" ? "side-item active" : "side-item"}
-            onClick={() => {
-              setPage("me");
-              void refreshMaterials();
-            }}
+            data-tour="profile"
+            onClick={() => setPage("me")}
             title="档案"
             aria-current={page === "me" ? "page" : undefined}
-            aria-label={navCollapsed ? "档案" : undefined}
           >
             <span className="side-ico">
-              <IconUser />
+              <IconProfile />
             </span>
-            {!navCollapsed && <span>档案</span>}
+            <span>档案</span>
           </button>
         </nav>
         <div className="side-foot">
           {interviewing && (
             <div className="side-rec live" title="面试进行中">
               <span className="rec-dot" />
-              {!navCollapsed && <span>面试进行中</span>}
+              <span>面试进行中</span>
             </div>
           )}
           <div className="me-wrap" ref={meMenuRef}>
             {showMeMenu ? (
               <div className="me-pop" role="dialog" aria-label="我的">
+                <div className="me-pop-head">
+                  <span className="side-me-avatar" aria-hidden>
+                    <img src={sideLogo} alt="" width="22" height="22" />
+                  </span>
+                  <span className="me-pop-head-text">
+                    <span className="me-pop-name">当前账户</span>
+                    <span className="me-pop-email">
+                      {settings.interview_email.trim() || "未登录"}
+                    </span>
+                  </span>
+                </div>
                 <div className="me-pop-group">
                   <button
                     type="button"
                     className="me-pop-item"
                     onClick={() => {
-                      const params = new URLSearchParams();
-                      const email = settings.interview_email.trim();
-                      if (email) params.set("email", email);
-                      params.set("minutes", String(balanceMinutes));
-                      const query = params.toString();
-                      void openWebPage(query ? `/account?${query}` : "/account");
+                      void openWebPage(WEB_PATHS.plans, accountWebQuery());
                     }}
                   >
                     <span className="side-ico">
                       <IconCard />
                     </span>
                     套餐购买
+                    <span className="me-pop-chevron">
+                      <IconChevron dir="right" />
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1757,85 +2144,84 @@ function App() {
                   <button
                     type="button"
                     className="me-pop-item"
-                    onClick={() => void openWebPage("/help/support")}
+                    onClick={() => {
+                      void openWebPage(WEB_PATHS.contact, {
+                        email: settings.interview_email.trim() || undefined,
+                        topic: "桌面听题",
+                      });
+                    }}
                   >
                     <span className="side-ico">
                       <IconHeadset />
                     </span>
                     联系客服
+                    <span className="me-pop-chevron">
+                      <IconChevron dir="right" />
+                    </span>
                   </button>
                   <button
                     type="button"
                     className="me-pop-item"
-                    onClick={() => void openWebPage("/help/faq")}
+                    onClick={() => replayOnboard()}
+                  >
+                    <span className="side-ico">
+                      <IconGuide />
+                    </span>
+                    使用引导
+                  </button>
+                  <button
+                    type="button"
+                    className="me-pop-item"
+                    onClick={() => {
+                      void openWebPage(WEB_PATHS.help);
+                    }}
                   >
                     <span className="side-ico">
                       <IconHelp />
                     </span>
                     帮助
-                    <span className="me-pop-chevron">›</span>
+                    <span className="me-pop-chevron">
+                      <IconChevron dir="right" />
+                    </span>
                   </button>
                 </div>
                 <div className="me-pop-group">
-                  {!logoutConfirm ? (
-                    <button
-                      type="button"
-                      className="me-pop-item danger"
-                      onClick={() => setLogoutConfirm(true)}
-                    >
-                      <span className="side-ico">
-                        <IconExit />
-                      </span>
-                      退出登录
-                    </button>
-                  ) : (
-                    <div className="me-pop-logout-confirm">
-                      <span>确认退出？</span>
-                      <button
-                        type="button"
-                        className="btn ghost"
-                        disabled={logoutBusy}
-                        onClick={() => setLogoutConfirm(false)}
-                      >
-                        取消
-                      </button>
-                      <button
-                        type="button"
-                        className="btn danger"
-                        disabled={logoutBusy}
-                        onClick={onLogoutInterview}
-                      >
-                        {logoutBusy ? "退出中…" : "退出"}
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    className="me-pop-item danger"
+                    disabled={logoutBusy}
+                    onClick={() => void onLogoutInterview()}
+                  >
+                    <span className="side-ico">
+                      <IconExit />
+                    </span>
+                    {logoutBusy ? "退出中…" : "退出登录"}
+                  </button>
                 </div>
               </div>
             ) : null}
             <button
               type="button"
               className={showMeMenu ? "side-me open" : "side-me"}
+              data-tour="me"
               onClick={() => {
                 setShowMeMenu((v) => !v);
-                setLogoutConfirm(false);
               }}
               title={settings.interview_email || "我的"}
               aria-label="我的"
               aria-expanded={showMeMenu}
               aria-haspopup="dialog"
             >
-              {navCollapsed ? (
-                <span className="side-me-collapsed-label">我</span>
-              ) : (
-                <span className="side-me-text">
-                  <span className="side-me-label">
-                    {settings.interview_email || "我的"}
-                  </span>
-                  <span className="side-me-meta">
-                    {balanceMinutes}时长 · {balanceMinutes}积分
-                  </span>
-                </span>
-              )}
+              <span className="side-me-avatar" aria-hidden>
+                <img src={sideLogo} alt="" width="22" height="22" />
+              </span>
+              <span className="side-me-text">
+                <span className="side-me-label">我的</span>
+                <span className="side-me-meta">{balanceMinutes} 分钟</span>
+              </span>
+              <span className="side-me-caret">
+                <IconChevron dir={showMeMenu ? "up" : "down"} />
+              </span>
             </button>
           </div>
         </div>
@@ -1855,39 +2241,45 @@ function App() {
                     type="button"
                     className="history-toggle"
                     title="展开聊天历史"
+                    aria-label="展开聊天历史"
                     onClick={() => setHistoryCollapsed(false)}
                   >
-                    ›
+                    <IconChevron dir="right" />
                   </button>
                   <button
                     type="button"
                     className="history-new"
                     onClick={onNewSession}
                     title="新对话"
+                    aria-label="新对话"
                   >
-                    +
+                    <IconPlus />
                   </button>
                 </div>
               ) : (
                 <>
-                  <div className="history-head">
-                    <button
-                      type="button"
-                      className="history-toggle"
-                      title="收起聊天历史"
-                      onClick={() => setHistoryCollapsed(true)}
-                    >
-                      ‹
-                    </button>
+                  <div className="history-head rail-head">
                     <span className="history-label">闲聊历史</span>
-                    <button
-                      type="button"
-                      className="history-new"
-                      onClick={onNewSession}
-                      title="新对话"
-                    >
-                      +
-                    </button>
+                    <div className="history-head-actions">
+                      <button
+                        type="button"
+                        className="history-toggle"
+                        title="收起聊天历史"
+                        aria-label="收起聊天历史"
+                        onClick={() => setHistoryCollapsed(true)}
+                      >
+                        <IconChevron dir="left" />
+                      </button>
+                      <button
+                        type="button"
+                        className="history-new"
+                        onClick={onNewSession}
+                        title="新对话"
+                        aria-label="新对话"
+                      >
+                        <IconPlus />
+                      </button>
+                    </div>
                   </div>
                   <div className="history-list">
                     {sessions.length === 0 ? (
@@ -1935,7 +2327,9 @@ function App() {
               <div className="chat-inner">
                 {emptyChat ? (
                   <div className="welcome">
-                    <div className="welcome-mark">AurisAI</div>
+                    <div className="welcome-mark">
+                      <img src={appLogo} alt="" width="36" height="52" />
+                    </div>
                     <h1>今天有什么可以帮到你？</h1>
                     <p className="welcome-sub">
                       下方是闲聊，跟账户走。开面听题与出答在独立面试面板，不会写进闲聊。
@@ -1972,12 +2366,12 @@ function App() {
                     <button
                       type="button"
                       className="tool-btn accent"
+                      data-tour="start"
                       disabled={busy}
                       onClick={() => {
                         setError("");
                         setShowMeMenu(false);
                         setPage("me");
-                        void refreshMaterials();
                       }}
                       title="前往档案，确认材料后开始面试"
                     >
@@ -2045,33 +2439,80 @@ function App() {
           </div>
         ) : page === "records" ? (
           <div className="records-page">
-            <aside className="records-rail" aria-label="面试场次">
-              <div className="records-rail-head">面试场次</div>
-              <div className="records-list">
-                {rounds.length === 0 ? (
-                  <p className="records-empty">
-                    还没有面试场次。开面后会出现在这里，闲聊不会进来。
-                  </p>
-                ) : (
-                  rounds.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className={
-                        selectedRoundId === r.id
-                          ? "records-item active"
-                          : "records-item"
-                      }
-                      onClick={() => void openRound(r.id)}
-                    >
-                      <span className="records-item-time">
-                        {formatRoundTime(r.created_at)}
-                      </span>
-                      <span className="records-item-id">{r.id}</span>
-                    </button>
-                  ))
-                )}
-              </div>
+            <aside
+              className={
+                recordsCollapsed ? "records-rail collapsed" : "records-rail"
+              }
+              aria-label="面试场次"
+            >
+              {recordsCollapsed ? (
+                <div className="history-collapsed-bar">
+                  <button
+                    type="button"
+                    className="history-toggle"
+                    title="展开面试场次"
+                    aria-label="展开面试场次"
+                    onClick={() => setRecordsCollapsed(false)}
+                  >
+                    <IconChevron dir="right" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="records-rail-head rail-head">
+                    <span className="history-label">面试场次</span>
+                    <div className="history-head-actions">
+                      <button
+                        type="button"
+                        className="history-toggle"
+                        title="收起面试场次"
+                        aria-label="收起面试场次"
+                        onClick={() => setRecordsCollapsed(true)}
+                      >
+                        <IconChevron dir="left" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="records-list">
+                    {rounds.length === 0 ? (
+                      <p className="records-empty">
+                        还没有面试场次。开面后会出现在这里，闲聊不会进来。
+                      </p>
+                    ) : (
+                      rounds.map((r) => (
+                        <div
+                          key={r.id}
+                          className={
+                            selectedRoundId === r.id
+                              ? "records-item active"
+                              : "records-item"
+                          }
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => void openRound(r.id)}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") void openRound(r.id);
+                          }}
+                        >
+                          <span className="records-item-time">
+                            {formatRoundTime(r.created_at)}
+                          </span>
+                          <span className="records-item-id">{r.id}</span>
+                          <button
+                            type="button"
+                            className="history-del"
+                            title="删除"
+                            aria-label="删除这场面试"
+                            onClick={(ev) => void onDeleteRound(ev, r.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </aside>
             <div className="records-main">
               <h1 ref={pageHeadingRef} tabIndex={-1}>
@@ -2105,34 +2546,61 @@ function App() {
           </div>
         ) : (
           <div className="me-page">
-            <aside className="profile-rail">
-              <div className="profile-rail-head">
+            <aside
+              className={
+                profileCollapsed ? "profile-rail collapsed" : "profile-rail"
+              }
+            >
+              {profileCollapsed ? (
+                <div className="history-collapsed-bar">
+                  <button
+                    type="button"
+                    className="history-toggle"
+                    title="展开档案列表"
+                    aria-label="展开档案列表"
+                    onClick={() => setProfileCollapsed(false)}
+                  >
+                    <IconChevron dir="right" />
+                  </button>
+                  <button
+                    type="button"
+                    className="profile-icon-btn"
+                    title="新建档案"
+                    aria-label="新建档案"
+                    disabled={addingProfile}
+                    onClick={() => void onAddProfileDraft()}
+                  >
+                    <IconPlus />
+                  </button>
+                </div>
+              ) : (
+                <>
+              <div className="profile-rail-head rail-head">
                 <h1 ref={pageHeadingRef} tabIndex={-1}>
                   档案
                 </h1>
                 <div className="profile-rail-actions">
                   <button
                     type="button"
+                    className="history-toggle"
+                    title="收起档案列表"
+                    aria-label="收起档案列表"
+                    onClick={() => setProfileCollapsed(true)}
+                  >
+                    <IconChevron dir="left" />
+                  </button>
+                  <button
+                    type="button"
                     className="profile-icon-btn"
                     title="新建档案"
                     aria-label="新建档案"
+                    disabled={addingProfile}
                     onClick={() => void onAddProfileDraft()}
                   >
                     <IconPlus />
                   </button>
-                  <button
-                    type="button"
-                    className="profile-icon-btn danger"
-                    title="删除档案"
-                    aria-label="删除档案"
-                    disabled={!profileId}
-                    onClick={() => void onDeleteProfile()}
-                  >
-                    <IconTrash />
-                  </button>
                 </div>
               </div>
-              <p className="profile-rail-desc">管理本账户档案：名称、语言、技能、职位描述和简历。新建不会覆盖已有档案。</p>
               <div className="profile-card-list">
                 {(profiles.length
                   ? profiles
@@ -2148,42 +2616,45 @@ function App() {
                       ]
                     : []
                 ).map((p) => (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
                     className={
                       p.id === profileId ? "profile-card active" : "profile-card"
                     }
-                    onClick={() => void onSelectProfile(p.id)}
                   >
-                    <div className="profile-card-top">
-                      <span className="profile-card-name">{p.name || "默认档案"}</span>
-                      {p.is_active || p.id === profileId ? (
-                        <span className="profile-tag">当前</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="profile-icon-btn danger profile-card-del"
-                        title="删除档案"
-                        aria-label={`删除 ${p.name || "档案"}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void onDeleteProfile(p.id);
-                        }}
-                      >
-                        <IconTrash />
-                      </button>
-                    </div>
-                    <div className="profile-card-meta">
-                      {p.ready ? "已齐" : "未齐"}
-                      {p.language ? ` · ${p.language}` : ""}
-                    </div>
-                  </button>
+                    <button
+                      type="button"
+                      className="profile-card-select"
+                      onClick={() => void onSelectProfile(p.id)}
+                    >
+                      <div className="profile-card-top">
+                        <span className="profile-card-name">{p.name || "默认档案"}</span>
+                        {p.id === profileId ? (
+                          <span className="profile-tag">当前</span>
+                        ) : null}
+                      </div>
+                      <div className="profile-card-meta">
+                        {p.ready ? "已齐" : "未齐"}
+                        {p.language ? ` · ${p.language}` : ""}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="profile-icon-btn danger profile-card-del"
+                      title="删除档案"
+                      aria-label={`删除 ${p.name || "档案"}`}
+                      onClick={() => void onDeleteProfile(p.id)}
+                    >
+                      <IconTrash />
+                    </button>
+                  </div>
                 ))}
                 {profiles.length === 0 && !profileId ? (
                   <p className="profile-rail-empty muted">暂无档案，点 ＋ 新建</p>
                 ) : null}
               </div>
+                </>
+              )}
             </aside>
             <div className="profile-editor">
               <>
@@ -2208,19 +2679,10 @@ function App() {
                         className="profile-icon-btn"
                         title="新建档案"
                         aria-label="新建档案"
+                        disabled={addingProfile}
                         onClick={() => void onAddProfileDraft()}
                       >
                         <IconPlus />
-                      </button>
-                      <button
-                        type="button"
-                        className="profile-icon-btn danger"
-                        title="删除档案"
-                        aria-label="删除档案"
-                        disabled={!profileId}
-                        onClick={() => void onDeleteProfile()}
-                      >
-                        <IconTrash />
                       </button>
                     </div>
                   </header>
@@ -2332,6 +2794,7 @@ function App() {
                     <button
                       type="button"
                       className="btn primary profile-start"
+                      data-tour="start"
                       disabled={busy || interviewing}
                       onClick={openInterviewModeModal}
                     >
@@ -2714,15 +3177,7 @@ function App() {
                       className="settings-link"
                       onClick={() => {
                         setShowSettings(false);
-                        const params = new URLSearchParams();
-                        if (settings.interview_email.trim()) {
-                          params.set("email", settings.interview_email.trim());
-                        }
-                        params.set("minutes", String(balanceMinutes));
-                        const query = params.toString();
-                        void openWebPage(
-                          query ? `/account?${query}` : "/account",
-                        );
+                        void openWebPage(WEB_PATHS.plans, accountWebQuery());
                       }}
                     >
                       前往购买
@@ -2743,13 +3198,55 @@ function App() {
                     </span>
                   </div>
                   <div className="settings-row">
+                    <span>官网</span>
+                    <button
+                      type="button"
+                      className="settings-link"
+                      onClick={() => {
+                        setShowSettings(false);
+                        void openWebPage(WEB_PATHS.home);
+                      }}
+                    >
+                      {resolveWebBase()}
+                    </button>
+                  </div>
+                  <div className="settings-row">
+                    <span>套餐</span>
+                    <button
+                      type="button"
+                      className="settings-link"
+                      onClick={() => {
+                        setShowSettings(false);
+                        void openWebPage(WEB_PATHS.plans, accountWebQuery());
+                      }}
+                    >
+                      前往购买
+                    </button>
+                  </div>
+                  <div className="settings-row">
                     <span>帮助</span>
                     <button
                       type="button"
                       className="settings-link"
                       onClick={() => {
                         setShowSettings(false);
-                        void openWebPage("/help/support");
+                        void openWebPage(WEB_PATHS.help);
+                      }}
+                    >
+                      打开帮助
+                    </button>
+                  </div>
+                  <div className="settings-row">
+                    <span>客服</span>
+                    <button
+                      type="button"
+                      className="settings-link"
+                      onClick={() => {
+                        setShowSettings(false);
+                        void openWebPage(WEB_PATHS.contact, {
+                          email: settings.interview_email.trim() || undefined,
+                          topic: "桌面听题",
+                        });
                       }}
                     >
                       联系客服
@@ -2771,6 +3268,7 @@ function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="mode-title"
+            data-tour="mode"
           >
             <div className="mode-head">
               <h2 id="mode-title">选择面试使用方式</h2>
@@ -2896,8 +3394,11 @@ function App() {
               <button
                 type="button"
                 className="mode-btn primary"
-                disabled={busy}
-                onClick={() => void onStartInterview()}
+                disabled={busy || showOnboard}
+                onClick={() => {
+                  if (showOnboard) return;
+                  void onStartInterview();
+                }}
               >
                 {shortcutStatuses.some((s) => s.occupied)
                   ? "仍要开始面试"
@@ -2946,36 +3447,17 @@ function App() {
           </div>
         </div>
       ) : null}
-      {showNavTour ? (
-        <div className="nav-tour" role="dialog" aria-labelledby="nav-tour-title">
-          <div className="nav-tour-card">
-            <h2 id="nav-tour-title">先认一下左边</h2>
-            <p>第一次进来看一眼即可，之后不会再出现，也不会出现欢迎首页。</p>
-            <ol>
-              <li>闲聊：日常问答，不保存本场出答。</li>
-              <li>面试记录：回看已经生成的出答。</li>
-              <li>档案：名称、语言、技能、简历和职位描述，开面出答都读这里。</li>
-              <li>我的：左下点开，设置、套餐和退出在弹窗里。</li>
-            </ol>
-            <div className="nav-tour-actions">
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => dismissNavTour(settings.interview_email)}
-              >
-                跳过
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => dismissNavTour(settings.interview_email)}
-              >
-                知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+    </div>
+    </AppFrame>
+    )}
+    {showOnboard ? (
+      <OnboardGuide
+        key={onboardSeq}
+        page={page}
+        onPrepare={prepareOnboard}
+        onDone={dismissOnboard}
+      />
+    ) : null}
     </div>
   );
 }

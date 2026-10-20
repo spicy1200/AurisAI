@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AurisAI",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "identifier": "com.jghooo.aurisai",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -19,6 +19,7 @@
         "height": 620,
         "minWidth": 720,
         "minHeight": 480,
+        "decorations": false,
         "transparent": true,
         "shadow": false,
         "backgroundColor": "#00000000"

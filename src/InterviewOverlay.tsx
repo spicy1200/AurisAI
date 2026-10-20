@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { appLogo } from "./brand";
 import { invoke } from "./tauri";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, cursorPosition } from "@tauri-apps/api/window";
@@ -36,12 +37,31 @@ function clip(text: string, n = 48) {
   return t.length > n ? `${t.slice(0, n)}…` : t;
 }
 
-export default function InterviewOverlay() {
-  const [interviewerFinals, setInterviewerFinals] = useState<string[]>([]);
+const DEMO_INTERVIEWER = [
+  "请介绍一下你最近的项目。",
+  "这个项目里你负责哪一块？",
+];
+const DEMO_SELF = ["我最近在做订单服务改造，主要负责接口和稳定性。"];
+const DEMO_ANSWERS: InterviewAnswer[] = [
+  {
+    question: "请介绍一下你最近的项目。",
+    answer:
+      "先说项目背景和规模，再讲自己负责的模块、关键决策和结果，最后留一句可以追问的细节。",
+  },
+];
+
+export default function InterviewOverlay({ demo = false }: { demo?: boolean }) {
+  const [interviewerFinals, setInterviewerFinals] = useState<string[]>(
+    () => (demo ? DEMO_INTERVIEWER : []),
+  );
   const [interviewerPartial, setInterviewerPartial] = useState("");
-  const [selfFinals, setSelfFinals] = useState<string[]>([]);
+  const [selfFinals, setSelfFinals] = useState<string[]>(() =>
+    demo ? DEMO_SELF : [],
+  );
   const [selfPartial, setSelfPartial] = useState("");
-  const [answers, setAnswers] = useState<InterviewAnswer[]>([]);
+  const [answers, setAnswers] = useState<InterviewAnswer[]>(() =>
+    demo ? DEMO_ANSWERS : [],
+  );
   const [ask, setAsk] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(
@@ -72,8 +92,9 @@ export default function InterviewOverlay() {
 
   const setExpanded = useCallback((next: boolean) => {
     setBodyExpanded(next);
+    if (demo) return;
     void invoke("set_interview_shell_expanded", { expanded: next });
-  }, []);
+  }, [demo]);
 
   const toggleExpanded = useCallback(() => {
     setExpanded(!bodyExpandedRef.current);
@@ -90,10 +111,10 @@ export default function InterviewOverlay() {
       setStatus("自动回答已关。可手输问题或发送最新面试官转录。");
       setMonitorNotice("连接有效则扣时");
     }
-    if (isTauri()) {
+    if (!demo && isTauri()) {
       void invoke("set_interview_mic_capture", { enabled: !next }).catch(() => undefined);
     }
-  }, []);
+  }, [demo]);
 
   useEffect(() => {
     autoAnswerRef.current = autoAnswer;
@@ -113,11 +134,11 @@ export default function InterviewOverlay() {
 
   useEffect(() => {
     return () => {
-      if (isTauri()) {
+      if (!demo && isTauri()) {
         void invoke("set_interview_mic_capture", { enabled: true }).catch(() => undefined);
       }
     };
-  }, []);
+  }, [demo]);
 
   useEffect(() => {
     if (!showMenu) return;
@@ -142,6 +163,8 @@ export default function InterviewOverlay() {
 
   const generate = useCallback(
     async (question?: string, withShot?: boolean) => {
+      if (demo || busyRef.current) return;
+      busyRef.current = true;
       setError("");
       setBusy(true);
       try {
@@ -151,7 +174,6 @@ export default function InterviewOverlay() {
           "";
         if (!q) {
           setError("没有可回答的问题");
-          setBusy(false);
           return;
         }
         const wantShot = withShot ?? attachRef.current;
@@ -161,7 +183,6 @@ export default function InterviewOverlay() {
             q = `${q}\n\n[已附截图 base64-png length=${b64.length}；请结合屏幕可见题目作答；简历未写清处可按岗位常识合理归纳，勿说材料里没有]`;
           } catch (e) {
             setError(`截图失败：${e}`);
-            setBusy(false);
             return;
           }
         }
@@ -174,10 +195,11 @@ export default function InterviewOverlay() {
       } catch (e) {
         setError(String(e));
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     },
-    [refreshAnswers],
+    [demo, refreshAnswers],
   );
 
   const generateRef = useRef(generate);
@@ -205,6 +227,7 @@ export default function InterviewOverlay() {
 
   const endInterview = useCallback(async () => {
     setConfirmEnd(false);
+    if (demo) return;
     try {
       await invoke("stop_interview");
       setStatus("正在结束面试…");
@@ -224,7 +247,7 @@ export default function InterviewOverlay() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [demo]);
 
   const menubarRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -250,7 +273,7 @@ export default function InterviewOverlay() {
   // Only menubar + content (and end-confirm card) receive clicks; everything else
   // click-throughs to the meeting app — including the shortcut strip.
   useEffect(() => {
-    if (!isTauri()) return;
+    if (demo || !isTauri()) return;
     let alive = true;
     let lastIgnore: boolean | null = null;
     let timer = 0;
@@ -329,7 +352,7 @@ export default function InterviewOverlay() {
   }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (demo || !isTauri()) return;
     void (async () => {
       try {
         const s = await invoke<{ shortcuts?: ShortcutMap }>("get_settings");
@@ -347,7 +370,7 @@ export default function InterviewOverlay() {
   }, [refreshAnswers]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (demo || !isTauri()) return;
     let cancelled = false;
     const unsubs: Array<() => void> = [];
 
@@ -374,28 +397,30 @@ export default function InterviewOverlay() {
             return;
           }
           if (kind === "final") {
+            let added = false;
             setInterviewerFinals((prev) => {
               const next = appendFinal(prev, text);
-              if (
-                next !== prev &&
-                autoAnswerRef.current &&
-                !busyRef.current &&
-                looksLikeInterviewQuestion(text)
-              ) {
-                const q = text.trim();
-                setAsk(q);
-                setStatus("判定为问题，正在自动出答…");
-                void generateRef.current(q, false);
-              } else if (
-                next !== prev &&
-                autoAnswerRef.current &&
-                !looksLikeInterviewQuestion(text)
-              ) {
-                setStatus("非问题，仅留在面试官转录。");
-              }
+              added = next !== prev;
               return next;
             });
             setInterviewerPartial("");
+            const q = text.trim();
+            if (
+              added &&
+              autoAnswerRef.current &&
+              !busyRef.current &&
+              looksLikeInterviewQuestion(q)
+            ) {
+              setAsk(q);
+              setStatus("判定为问题，正在自动出答…");
+              void generateRef.current(q, false);
+            } else if (
+              added &&
+              autoAnswerRef.current &&
+              !looksLikeInterviewQuestion(q)
+            ) {
+              setStatus("非问题，仅留在面试官转录。");
+            }
           } else {
             setInterviewerPartial(text);
           }
@@ -505,8 +530,11 @@ export default function InterviewOverlay() {
         : "听题已就绪"
     : "听题已断开";
 
-  return (
-    <div className={bodyExpanded ? "ov-root" : "ov-root ov-root-compact"}>
+    return (
+    <div
+      className={bodyExpanded ? "ov-root" : "ov-root ov-root-compact"}
+      aria-hidden={demo || undefined}
+    >
       <header className="ov-module ov-menubar" ref={menubarRef}>
         <button
           type="button"
@@ -526,6 +554,7 @@ export default function InterviewOverlay() {
           </svg>
         </button>
         <span className="ov-brand-name" data-tauri-drag-region>
+          <img className="ov-brand-logo" src={appLogo} alt="" width="14" height="20" />
           AurisAI
         </span>
         <span className="ov-menubar-grow" data-tauri-drag-region aria-hidden="true" />
@@ -567,6 +596,7 @@ export default function InterviewOverlay() {
             className={autoAnswer ? "ov-ico-btn on" : "ov-ico-btn"}
             aria-label="自动回答"
             title="自动回答"
+            data-tour={demo ? "demo-auto" : undefined}
             onClick={() => applyAutoAnswer(!autoAnswer)}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -720,7 +750,7 @@ export default function InterviewOverlay() {
                   </button>
                 </header>
                 <div className={autoAnswer ? "ov-panel-body ov-panel-body-solo" : "ov-panel-body"}>
-                  <div className="ov-col">
+                  <div className="ov-col" data-tour={demo ? "demo-interviewer" : undefined}>
                     <div className="ov-col-label">面试官</div>
                     {interviewerFinals.map((t, i) => (
                       <p key={`i-${i}`}>{t}</p>
@@ -733,7 +763,7 @@ export default function InterviewOverlay() {
                     ) : null}
                   </div>
                   {autoAnswer ? null : (
-                    <div className="ov-col">
+                    <div className="ov-col" data-tour={demo ? "demo-mic" : undefined}>
                       <div className="ov-col-label">麦克风</div>
                       {selfFinals.map((t, i) => (
                         <p key={`s-${i}`}>{t}</p>
@@ -749,7 +779,10 @@ export default function InterviewOverlay() {
             ) : null}
 
             {showAnswer ? (
-              <section className="ov-panel ov-answer">
+              <section
+                className="ov-panel ov-answer"
+                data-tour={demo ? "demo-answer" : undefined}
+              >
                 <header className="ov-panel-head">
                   <span>回答</span>
                   <button

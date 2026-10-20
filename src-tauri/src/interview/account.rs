@@ -465,6 +465,19 @@ pub fn create_round(base: &str, token: &str) -> Result<String, String> {
     data.round_id.filter(|s| !s.is_empty()).ok_or_else(|| "成功但未返回场次".into())
 }
 
+pub fn delete_round(base: &str, token: &str, round_id: &str) -> Result<(), String> {
+    unwrap(
+        post_authed(
+            base,
+            token,
+            serde_json::json!({ "Action": "DeleteInterviewRound", "RoundId": round_id }),
+            20,
+        )?,
+        "无法删除面试场次",
+    )?;
+    Ok(())
+}
+
 pub fn list_rounds(base: &str, token: &str) -> Result<Vec<InterviewRound>, String> {
     let data = unwrap(
         post_authed(

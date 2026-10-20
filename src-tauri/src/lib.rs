@@ -62,8 +62,16 @@ fn api_creds(state: &AppState) -> Result<(String, String), String> {
     ))
 }
 
+async fn run_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("后台任务失败: {e}"))?
+}
+
 #[tauri::command]
-fn send_chat_message(
+async fn send_chat_message(
     state: State<'_, Arc<AppState>>,
     session_id: String,
     text: String,
@@ -76,65 +84,74 @@ fn send_chat_message(
     if session_id.trim().is_empty() {
         return Err("请先新建闲聊".into());
     }
-    let (reply, _) = interview::account::send_chat(&base, &token, &session_id, &content)?;
-    Ok(reply)
+    run_blocking(move || {
+        let (reply, _) = interview::account::send_chat(&base, &token, &session_id, &content)?;
+        Ok(reply)
+    })
+    .await
 }
 
 #[tauri::command]
-fn create_chat_session(state: State<'_, Arc<AppState>>) -> Result<ChatSession, String> {
+async fn create_chat_session(state: State<'_, Arc<AppState>>) -> Result<ChatSession, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::create_session(&base, &token)
+    run_blocking(move || interview::account::create_session(&base, &token)).await
 }
 
 #[tauri::command]
-fn list_chat_sessions(state: State<'_, Arc<AppState>>) -> Result<Vec<ChatSession>, String> {
+async fn list_chat_sessions(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<ChatSession>, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::list_sessions(&base, &token)
+    run_blocking(move || interview::account::list_sessions(&base, &token)).await
 }
 
 #[tauri::command]
-fn load_chat_session(
+async fn load_chat_session(
     state: State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<Vec<ChatMessage>, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::get_session(&base, &token, &session_id)
+    run_blocking(move || interview::account::get_session(&base, &token, &session_id)).await
 }
 
 #[tauri::command]
-fn delete_chat_session(
+async fn delete_chat_session(
     state: State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<(), String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::delete_session(&base, &token, &session_id)
+    run_blocking(move || interview::account::delete_session(&base, &token, &session_id)).await
 }
 
 #[tauri::command]
-fn get_llm_meta(state: State<'_, Arc<AppState>>) -> Result<LlmMeta, String> {
+async fn get_llm_meta(state: State<'_, Arc<AppState>>) -> Result<LlmMeta, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::get_llm_meta(&base, &token)
+    run_blocking(move || interview::account::get_llm_meta(&base, &token)).await
 }
 
 #[tauri::command]
-fn get_interview_materials(
+async fn get_interview_materials(
     state: State<'_, Arc<AppState>>,
     profile_id: Option<String>,
 ) -> Result<InterviewMaterials, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::get_materials(&base, &token, profile_id.as_deref().unwrap_or(""))
+    let profile_id = profile_id.unwrap_or_default();
+    run_blocking(move || {
+        interview::account::get_materials(&base, &token, &profile_id)
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_interview_profiles(
+async fn list_interview_profiles(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<InterviewProfileSummary>, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::list_profiles(&base, &token)
+    run_blocking(move || interview::account::list_profiles(&base, &token)).await
 }
 
 #[tauri::command]
-fn save_interview_materials(
+async fn save_interview_materials(
     state: State<'_, Arc<AppState>>,
     resume: String,
     jd: String,
@@ -145,45 +162,67 @@ fn save_interview_materials(
     create_new: Option<bool>,
 ) -> Result<InterviewMaterials, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::save_materials(
-        &base,
-        &token,
-        &resume,
-        &jd,
-        &profile_name,
-        &language,
-        &skills,
-        profile_id.as_deref().unwrap_or(""),
-        create_new.unwrap_or(false),
-    )
+    let profile_id = profile_id.unwrap_or_default();
+    let create_new = create_new.unwrap_or(false);
+    run_blocking(move || {
+        interview::account::save_materials(
+            &base,
+            &token,
+            &resume,
+            &jd,
+            &profile_name,
+            &language,
+            &skills,
+            &profile_id,
+            create_new,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-fn delete_interview_profile(
+async fn delete_interview_profile(
     state: State<'_, Arc<AppState>>,
     profile_id: String,
 ) -> Result<InterviewMaterials, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::delete_profile(&base, &token, &profile_id)
+    run_blocking(move || interview::account::delete_profile(&base, &token, &profile_id)).await
 }
 
 #[tauri::command]
-fn list_interview_answers(state: State<'_, Arc<AppState>>) -> Result<Vec<InterviewAnswer>, String> {
+async fn list_interview_answers(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<InterviewAnswer>, String> {
     let (base, token) = api_creds(&state)?;
     let Some(round_id) = state.current_round_id.lock().clone() else {
         return Ok(Vec::new());
     };
-    interview::account::list_answers(&base, &token, &round_id)
+    run_blocking(move || interview::account::list_answers(&base, &token, &round_id)).await
 }
 
 #[tauri::command]
-fn list_interview_rounds(state: State<'_, Arc<AppState>>) -> Result<Vec<InterviewRound>, String> {
+async fn delete_interview_round(
+    state: State<'_, Arc<AppState>>,
+    round_id: String,
+) -> Result<(), String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::list_rounds(&base, &token)
+    let round_id = round_id.trim().to_string();
+    if round_id.is_empty() {
+        return Err("缺少场次".into());
+    }
+    run_blocking(move || interview::account::delete_round(&base, &token, &round_id)).await
 }
 
 #[tauri::command]
-fn list_interview_answers_for_round(
+async fn list_interview_rounds(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<InterviewRound>, String> {
+    let (base, token) = api_creds(&state)?;
+    run_blocking(move || interview::account::list_rounds(&base, &token)).await
+}
+
+#[tauri::command]
+async fn list_interview_answers_for_round(
     state: State<'_, Arc<AppState>>,
     round_id: String,
 ) -> Result<Vec<InterviewAnswer>, String> {
@@ -192,13 +231,13 @@ fn list_interview_answers_for_round(
     if round_id.is_empty() {
         return Err("请选择一场面试".into());
     }
-    interview::account::list_answers(&base, &token, &round_id)
+    run_blocking(move || interview::account::list_answers(&base, &token, &round_id)).await
 }
 
 #[tauri::command]
-fn get_interview_me(state: State<'_, Arc<AppState>>) -> Result<InterviewMe, String> {
+async fn get_interview_me(state: State<'_, Arc<AppState>>) -> Result<InterviewMe, String> {
     let (base, token) = api_creds(&state)?;
-    interview::account::get_interview_me(&base, &token)
+    run_blocking(move || interview::account::get_interview_me(&base, &token)).await
 }
 
 #[tauri::command]
@@ -258,29 +297,30 @@ fn persist_interview_account(
 }
 
 #[tauri::command]
-fn login_interview(
+async fn login_interview(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
     email: String,
     password: String,
 ) -> Result<InterviewAccountView, String> {
     let base = state.settings.lock().api_http_url.clone();
-    let account = interview::auth::login(&base, &email, &password)?;
+    let account =
+        run_blocking(move || interview::auth::login(&base, &email, &password)).await?;
     persist_interview_account(&app, &state, account)
 }
 
 #[tauri::command]
-fn send_interview_email_code(
+async fn send_interview_email_code(
     state: State<'_, Arc<AppState>>,
     email: String,
     purpose: String,
 ) -> Result<String, String> {
     let base = state.settings.lock().api_http_url.clone();
-    interview::auth::send_email_code(&base, &email, &purpose)
+    run_blocking(move || interview::auth::send_email_code(&base, &email, &purpose)).await
 }
 
 #[tauri::command]
-fn register_interview(
+async fn register_interview(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
     email: String,
@@ -288,19 +328,20 @@ fn register_interview(
     code: String,
 ) -> Result<InterviewAccountView, String> {
     let base = state.settings.lock().api_http_url.clone();
-    let account = interview::auth::register(&base, &email, &password, &code)?;
+    let account =
+        run_blocking(move || interview::auth::register(&base, &email, &password, &code)).await?;
     persist_interview_account(&app, &state, account)
 }
 
 #[tauri::command]
-fn reset_interview_password(
+async fn reset_interview_password(
     state: State<'_, Arc<AppState>>,
     email: String,
     password: String,
     code: String,
 ) -> Result<String, String> {
     let base = state.settings.lock().api_http_url.clone();
-    interview::auth::reset_password(&base, &email, &password, &code)
+    run_blocking(move || interview::auth::reset_password(&base, &email, &password, &code)).await
 }
 
 #[tauri::command]
@@ -450,6 +491,15 @@ fn capture_screenshot_base64() -> Result<String, String> {
     capture::capture_primary_png_base64()
 }
 
+fn load_app_icon() -> Option<tauri::image::Image<'static>> {
+    let img = image::load_from_memory(include_bytes!("../icons/128x128.png"))
+        .ok()?
+        .into_rgba8();
+    let width = img.width();
+    let height = img.height();
+    Some(tauri::image::Image::new_owned(img.into_raw(), width, height))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -463,6 +513,9 @@ pub fn run() {
                 live: Mutex::new(None),
                 current_round_id: Mutex::new(None),
             }));
+            if let (Some(window), Some(icon)) = (app.get_webview_window("main"), load_app_icon()) {
+                let _ = window.set_icon(icon);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -479,6 +532,7 @@ pub fn run() {
             save_interview_materials,
             delete_interview_profile,
             list_interview_answers,
+            delete_interview_round,
             list_interview_rounds,
             list_interview_answers_for_round,
             get_interview_me,
