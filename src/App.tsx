@@ -678,7 +678,7 @@ function App() {
   const [balanceMinutes, setBalanceMinutes] = useState(0);
   const [showOnboard, setShowOnboard] = useState(() => !readOnboardDone());
   const [onboardSeq, setOnboardSeq] = useState(0);
-  const [showOnboardDemo, setShowOnboardDemo] = useState(false);
+  const [, setShowOnboardDemo] = useState(false);
   const [rounds, setRounds] = useState<InterviewRound[]>([]);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [recordAnswers, setRecordAnswers] = useState<InterviewAnswer[]>([]);

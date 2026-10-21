@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build (e.g. v0.1.0). Must already exist on origin."
+        description: "Existing tag to build (e.g. v1.0.1). Must already exist on origin."
         required: true
         type: string
 
@@ -19,14 +19,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install Rust stable
@@ -53,5 +53,5 @@ jobs:
             The installer is unsigned; Windows SmartScreen may warn on first launch.
           releaseDraft: false
           prerelease: false
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           args: --bundles nsis

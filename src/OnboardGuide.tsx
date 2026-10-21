@@ -237,14 +237,15 @@ export function OnboardGuide({ page, onPrepare, onDone }: Props) {
   }, [step]);
 
   useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
+    const maybeRoot = rootRef.current;
+    if (!maybeRoot) return;
+    const overlay: HTMLDivElement = maybeRoot;
     let cancelled = false;
     let tries = 0;
 
     function locate() {
       if (cancelled) return;
-      const origin = root.getBoundingClientRect();
+      const origin = overlay.getBoundingClientRect();
       const el = document.querySelector<HTMLElement>(
         `[data-tour="${STEPS[step].target}"]`,
       );
@@ -271,7 +272,7 @@ export function OnboardGuide({ page, onPrepare, onDone }: Props) {
       window.requestAnimationFrame(locate);
     });
     const ro = new ResizeObserver(() => locate());
-    ro.observe(root);
+    ro.observe(overlay);
     window.addEventListener("resize", locate);
     return () => {
       cancelled = true;
