@@ -18,11 +18,11 @@ npm install
 npm run tauri dev
 ```
 
-后端默认 `http://127.0.0.1:8089`。在 **设置** 中填写接口 / 开面 WebSocket 地址。生成密钥只在服务端配置。
+开发（`npm run tauri dev`）默认接口 `http://127.0.0.1:8089`；安装包 / `tauri build` 默认生产接口 `https://aurisai.mmming.cn/interview-api`（见 `.env.production` 的 `VITE_API_HTTP_URL` / `VITE_INTERVIEW_WS_URL`）。生成密钥只在服务端配置。
 
-「我的」里的套餐购买、联系客服、帮助会用系统浏览器打开官网。`npm run tauri dev` 默认 `http://localhost:5173`（需先启动 AurisAIWeb），安装包默认生产站点（`.env.production` 的 `VITE_WEB_BASE`）。
+「我的」里的套餐购买、联系客服、帮助会用系统浏览器打开官网。开发默认 `http://localhost:5173`（需先启动 AurisAIWeb），安装包默认 `.env.production` 的 `VITE_WEB_BASE`。
 
-设置保存在本机 `%APPDATA%\com.jghooo.aurisai\settings.json`，不会打进安装包。
+设置保存在本机 `%APPDATA%\com.jghooo.aurisai\settings.json`。若以前装过本地接口版本，正式包启动时会把仍指向 `127.0.0.1` 的地址自动迁到生产接口。
 
 ## 使用
 

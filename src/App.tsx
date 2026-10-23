@@ -8,6 +8,7 @@ import {
   isAuthExpiredError,
 } from "./tauri";
 import { appLogo, sideLogo } from "./brand";
+import { defaultApiHttpUrl, defaultInterviewWsUrl } from "./apiEndpoints";
 import { resolveWebBase, WEB_PATHS, webPageUrl } from "./site";
 import { AuthScreen, type InterviewAccount } from "./AuthScreen";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -591,10 +592,10 @@ interface TranscriptLive {
 }
 
 const defaultSettings: Settings = {
-  interview_ws_url: "ws://127.0.0.1:8089/ws/interview",
+  interview_ws_url: defaultInterviewWsUrl(),
   interview_token: "",
   interview_email: "",
-  api_http_url: "http://127.0.0.1:8089",
+  api_http_url: defaultApiHttpUrl(),
   mic_device_id: "",
   system_audio_device_id: "",
   shortcuts: defaultShortcutMap(),
@@ -634,6 +635,8 @@ function App() {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [spareSessionId, setSpareSessionId] = useState<string | null>(null);
+  const [newSessionBusy, setNewSessionBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
@@ -709,6 +712,10 @@ function App() {
   const onboardShellRef = useRef(false);
   const materialsEpochRef = useRef(0);
   const addingProfileRef = useRef(false);
+  const newSessionLockRef = useRef(false);
+  const currentSessionIdRef = useRef<string | null>(null);
+  const prefetchedSessionRef = useRef<ChatSession | null>(null);
+  const prefetchPromiseRef = useRef<Promise<ChatSession | null> | null>(null);
   const [addingProfile, setAddingProfile] = useState(false);
   const editorRef = useRef<ProfileEditorDraft>({
     resume: "",
@@ -813,6 +820,127 @@ function App() {
       /* ignore */
     }
   }, []);
+
+  const clearSpareSession = useCallback(() => {
+    prefetchedSessionRef.current = null;
+    setSpareSessionId(null);
+  }, []);
+
+  const ensureSpareSession = useCallback(async () => {
+    if (!settings.interview_token.trim()) return null;
+    if (prefetchedSessionRef.current) return prefetchedSessionRef.current;
+    if (prefetchPromiseRef.current) return prefetchPromiseRef.current;
+
+    let pending!: Promise<ChatSession | null>;
+    pending = (async (): Promise<ChatSession | null> => {
+      try {
+        const session = await invoke<ChatSession>("create_chat_session");
+        // Keep as invisible spare until selected; do not leave UI on an unselected session.
+        if (
+          currentSessionIdRef.current &&
+          session.id === currentSessionIdRef.current
+        ) {
+          return session;
+        }
+        prefetchedSessionRef.current = session;
+        setSpareSessionId(session.id);
+        await refreshSessions();
+        return session;
+      } catch {
+        return null;
+      } finally {
+        if (prefetchPromiseRef.current === pending) {
+          prefetchPromiseRef.current = null;
+        }
+      }
+    })();
+
+    prefetchPromiseRef.current = pending;
+    return pending;
+  }, [refreshSessions, settings.interview_token]);
+
+  const takeSpareSession = useCallback((excludeId: string | null) => {
+    const spare = prefetchedSessionRef.current;
+    if (!spare) return null;
+    if (excludeId && spare.id === excludeId) {
+      clearSpareSession();
+      return null;
+    }
+    clearSpareSession();
+    return spare;
+  }, [clearSpareSession]);
+
+  const acquireChatSession = useCallback(
+    async (excludeId: string | null) => {
+      const ready = takeSpareSession(excludeId);
+      if (ready) return ready;
+      if (prefetchPromiseRef.current) {
+        await prefetchPromiseRef.current;
+        const afterWait = takeSpareSession(excludeId);
+        if (afterWait) return afterWait;
+      }
+      const created = await invoke<ChatSession>("create_chat_session");
+      if (!created.id?.trim()) {
+        throw new Error("创建会话失败，请重试");
+      }
+      return created;
+    },
+    [takeSpareSession],
+  );
+
+  /** When nothing is selected, bind a real session so send never hits「会话不存在」. */
+  const ensureActiveChatSession = useCallback(async () => {
+    if (!settings.interview_token.trim()) return;
+    if (currentSessionIdRef.current?.trim()) {
+      void ensureSpareSession();
+      return;
+    }
+    try {
+      let list: ChatSession[] = [];
+      try {
+        list = await invoke<ChatSession[]>("list_chat_sessions");
+        setSessions(list);
+      } catch {
+        /* ignore list errors */
+      }
+      if (currentSessionIdRef.current?.trim()) return;
+
+      const spareId = prefetchedSessionRef.current?.id ?? null;
+      const candidates = list.filter((s) => s.id && s.id !== spareId);
+      if (candidates.length > 0) {
+        const pick = candidates[0];
+        const messages = await invoke<ChatMessage[]>("load_chat_session", {
+          sessionId: pick.id,
+        });
+        if (currentSessionIdRef.current?.trim()) return;
+        currentSessionIdRef.current = pick.id;
+        setCurrentSessionId(pick.id);
+        setChat(messages);
+        void ensureSpareSession();
+        return;
+      }
+
+      const session = await acquireChatSession(null);
+      if (currentSessionIdRef.current?.trim()) {
+        prefetchedSessionRef.current = session;
+        setSpareSessionId(session.id);
+        await refreshSessions();
+        return;
+      }
+      if (!session.id?.trim()) return;
+      currentSessionIdRef.current = session.id;
+      setCurrentSessionId(session.id);
+      await refreshSessions();
+      void ensureSpareSession();
+    } catch {
+      /* ignore warmup errors */
+    }
+  }, [
+    acquireChatSession,
+    ensureSpareSession,
+    refreshSessions,
+    settings.interview_token,
+  ]);
 
   const applyEditorDraft = useCallback((draft: ProfileEditorDraft, asClean: boolean) => {
     setResumeText(draft.resume);
@@ -1167,6 +1295,25 @@ function App() {
       pageHeadingRef.current?.focus();
     }
   }, [page]);
+
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (!settings.interview_token.trim()) {
+      clearSpareSession();
+      prefetchPromiseRef.current = null;
+      return;
+    }
+    if (page !== "chat") return;
+    void ensureActiveChatSession();
+  }, [
+    settings.interview_token,
+    page,
+    ensureActiveChatSession,
+    clearSpareSession,
+  ]);
 
   useEffect(() => {
     const resolved = resolveTheme(uiTheme);
@@ -1596,6 +1743,8 @@ function App() {
     setLogoutBusy(true);
     try {
       await invoke("logout_interview");
+      clearSpareSession();
+      prefetchPromiseRef.current = null;
       setSettings((prev) => ({
         ...prev,
         interview_token: "",
@@ -1607,6 +1756,10 @@ function App() {
       setProfileLanguage("");
       setSkillsText("");
       setMaterialsReady(false);
+      currentSessionIdRef.current = null;
+      setCurrentSessionId(null);
+      setChat([]);
+      setSessions([]);
       setStatus("已退出登录");
       setShowMeMenu(false);
       setPage("chat");
@@ -1751,15 +1904,18 @@ function App() {
 
   async function onSend() {
     setError("");
-    if (!ask.trim()) return;
+    if (!ask.trim() || newSessionBusy) return;
     setBusy(true);
     setStatus("闲聊生成中…");
     try {
-      let sid = currentSessionId;
+      let sid = currentSessionId?.trim() || "";
       if (!sid) {
-        const session = await invoke<ChatSession>("create_chat_session");
-        sid = session.id;
+        const session = await acquireChatSession(null);
+        sid = session.id.trim();
+        if (!sid) throw new Error("会话不可用，请点「新对话」后重试");
+        currentSessionIdRef.current = sid;
         setCurrentSessionId(sid);
+        void ensureSpareSession();
       }
       const userText = ask.trim();
       setAsk("");
@@ -1781,14 +1937,30 @@ function App() {
   }
 
   async function onNewSession() {
+    if (newSessionLockRef.current || newSessionBusy) return;
+    newSessionLockRef.current = true;
+    setNewSessionBusy(true);
+    setError("");
+    const previousId = currentSessionId;
+    currentSessionIdRef.current = null;
+    setCurrentSessionId(null);
+    setChat([]);
+    setStatus("已开始新闲聊");
     try {
-      const session = await invoke<ChatSession>("create_chat_session");
-      setCurrentSessionId(session.id);
-      setChat([]);
+      const session = await acquireChatSession(previousId);
+      const sid = session.id.trim();
+      if (!sid) throw new Error("创建会话失败，请重试");
+      currentSessionIdRef.current = sid;
+      setCurrentSessionId(sid);
       await refreshSessions();
-      setStatus("已开始新闲聊");
+      void ensureSpareSession();
+      inputRef.current?.focus();
     } catch (e) {
       showChatAlert(e);
+      setStatus("");
+    } finally {
+      newSessionLockRef.current = false;
+      setNewSessionBusy(false);
     }
   }
 
@@ -1972,9 +2144,14 @@ function App() {
       const messages = await invoke<ChatMessage[]>("load_chat_session", {
         sessionId: id,
       });
+      if (spareSessionId === id) {
+        clearSpareSession();
+      }
+      currentSessionIdRef.current = id;
       setCurrentSessionId(id);
       setChat(messages);
       setStatus("");
+      void ensureSpareSession();
     } catch (e) {
       setError(String(e));
     }
@@ -2000,11 +2177,18 @@ function App() {
     setError("");
     try {
       await invoke("delete_chat_session", { sessionId: id });
+      if (spareSessionId === id) {
+        clearSpareSession();
+      }
       if (currentSessionId === id) {
+        currentSessionIdRef.current = null;
         setCurrentSessionId(null);
         setChat([]);
       }
       await refreshSessions();
+      if (currentSessionIdRef.current === null) {
+        void ensureActiveChatSession();
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -2012,6 +2196,9 @@ function App() {
 
   const emptyChat = chat.length === 0;
   const loggedIn = Boolean(settings.interview_token.trim());
+  const visibleSessions = sessions.filter(
+    (s) => s.id !== spareSessionId || s.id === currentSessionId,
+  );
 
   if (!loggedIn) {
     return (
@@ -2250,6 +2437,7 @@ function App() {
                     type="button"
                     className="history-new"
                     onClick={onNewSession}
+                    disabled={newSessionBusy}
                     title="新对话"
                     aria-label="新对话"
                   >
@@ -2274,6 +2462,7 @@ function App() {
                         type="button"
                         className="history-new"
                         onClick={onNewSession}
+                        disabled={newSessionBusy}
                         title="新对话"
                         aria-label="新对话"
                       >
@@ -2282,12 +2471,12 @@ function App() {
                     </div>
                   </div>
                   <div className="history-list">
-                    {sessions.length === 0 ? (
+                    {visibleSessions.length === 0 ? (
                       <p className="history-empty">
                         暂无闲聊。发送后跟账户走，换电脑仍在。不保存本场出答。
                       </p>
                     ) : (
-                      sessions.map((s) => (
+                      visibleSessions.map((s) => (
                         <div
                           key={s.id}
                           className={
@@ -2420,7 +2609,7 @@ function App() {
                   <button
                     type="button"
                     className="send-btn"
-                    disabled={busy || !ask.trim()}
+                    disabled={busy || newSessionBusy || !ask.trim()}
                     onClick={() => onSend()}
                   >
                     发送
